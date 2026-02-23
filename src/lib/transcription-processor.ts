@@ -474,9 +474,48 @@ export async function processTranscription(params: {
       }
     }
 
+    // --- Step 3.75: Auto-generate chapters ---
+    if (transcription && !isMock) {
+      try {
+        console.log('[TranscriptionProcessor] Auto-generating video chapters...')
+        const { ChapterGenerator } = await import('@/lib/chapter-generator')
+
+        const segments = transcription.segments || []
+        const videoDuration = transcription.duration || (transcription as any).audio_duration || 0
+
+        if (segments.length > 0 && videoDuration > 0) {
+          const { data: projForChapters } = await supabaseAdmin
+            .from('projects')
+            .select('title, chapters')
+            .eq('id', projectId)
+            .single()
+
+          if (!projForChapters?.chapters || projForChapters.chapters.length === 0) {
+            const chaptersResult = await ChapterGenerator.generateChapters(
+              segments,
+              videoDuration,
+              projForChapters?.title || 'Untitled',
+              { style: 'engaging', targetPlatform: 'youtube', includeIntro: true }
+            )
+
+            if (chaptersResult.chapters.length > 0) {
+              await supabaseAdmin
+                .from('projects')
+                .update({ chapters: chaptersResult.chapters })
+                .eq('id', projectId)
+
+              console.log(`[TranscriptionProcessor] Auto-generated ${chaptersResult.chapters.length} chapters`)
+            }
+          } else {
+            console.log('[TranscriptionProcessor] Chapters already exist, skipping auto-generation')
+          }
+        }
+      } catch (chapterError) {
+        console.error('[TranscriptionProcessor] Chapter generation failed (non-fatal):', chapterError)
+      }
+    }
+
     // --- Step 4: Auto-generate AI Posts via Inngest (direct, no HTTP) ---
-    // Creates a job record and dispatches to Inngest worker directly,
-    // avoiding fragile self-referential HTTP calls.
     if (contentAnalysis && !analysisError) {
       console.log('[TranscriptionProcessor] Triggering automatic AI post generation via Inngest...')
       try {

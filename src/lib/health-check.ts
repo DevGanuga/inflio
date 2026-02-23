@@ -125,7 +125,7 @@ async function checkKlap(): Promise<HealthCheckResult> {
   try {
     const env = validateEnv()
     
-    if (!env.KLAP_API_KEY) {
+    if (!(env as any).KLAP_API_KEY) {
       return {
         service: 'klap',
         status: 'unhealthy',

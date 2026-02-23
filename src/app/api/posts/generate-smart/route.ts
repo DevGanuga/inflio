@@ -25,10 +25,9 @@ export async function POST(req: NextRequest) {
     // ── Auth ────────────────────────────────────────────────────────────────
     const internalKey = req.headers.get('X-Internal-Key')
     const isInternalCall =
-      internalKey === process.env.INTERNAL_API_KEY ||
-      req.headers.get('user-agent')?.includes('node-fetch') ||
-      req.headers.get('x-forwarded-for') === '::1' ||
-      req.headers.get('x-forwarded-for') === '127.0.0.1'
+      internalKey !== undefined &&
+      process.env.INTERNAL_API_KEY !== undefined &&
+      internalKey === process.env.INTERNAL_API_KEY
 
     const { userId } = await auth()
 

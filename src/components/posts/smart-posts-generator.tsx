@@ -5,7 +5,7 @@ import { motion } from 'framer-motion'
 import { 
   Sparkles, User, Users, Wand2,
   CheckCircle2, TrendingUp, Hash, Eye, 
-  Target, Brain,
+  Target, Brain, Send,
   Instagram, Twitter, Linkedin, Facebook, Youtube,
   Info, Plus, RefreshCw,
   MessageSquare, Image, Film, Layout, Smartphone,
@@ -91,8 +91,21 @@ const CONTENT_TYPE_ICONS: Record<string, typeof Layout> = {
 
 // ─── Suggestion Card ────────────────────────────────────────────────────────
 
-function SuggestionCard({ suggestion, index }: { suggestion: any; index: number }) {
+function SuggestionCard({
+  suggestion,
+  index,
+  onApprove,
+  onRegenerate,
+}: {
+  suggestion: any
+  index: number
+  onApprove?: (id: string) => void
+  onRegenerate?: (id: string) => void
+}) {
   const [expanded, setExpanded] = useState(false)
+  const [approving, setApproving] = useState(false)
+  const [regenerating, setRegenerating] = useState(false)
+  const [publishing, setPublishing] = useState(false)
 
   const contentType = suggestion.content_type || suggestion.type || 'single'
   const TypeIcon = CONTENT_TYPE_ICONS[contentType] || MessageSquare
@@ -103,6 +116,50 @@ function SuggestionCard({ suggestion, index }: { suggestion: any; index: number 
   const copyVariants = suggestion.copy_variants || {}
   const carouselSlides = suggestion.metadata?.carousel_slides || []
   const personaUsed = suggestion.persona_used
+  const heroImage = suggestion.images?.[0]
+  const isApproved = suggestion.status === 'approved'
+
+  const handleApprove = async () => {
+    setApproving(true)
+    try {
+      const res = await fetch('/api/posts/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ suggestionId: suggestion.id }),
+      })
+      if (res.ok) {
+        toast.success('Post approved and moved to staging!')
+        onApprove?.(suggestion.id)
+      } else {
+        toast.error('Failed to approve post')
+      }
+    } catch {
+      toast.error('Failed to approve post')
+    } finally {
+      setApproving(false)
+    }
+  }
+
+  const handleRegenerate = async () => {
+    setRegenerating(true)
+    try {
+      const res = await fetch('/api/posts/regenerate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ suggestionId: suggestion.id }),
+      })
+      if (res.ok) {
+        toast.success('Post regenerated!')
+        onRegenerate?.(suggestion.id)
+      } else {
+        toast.error('Failed to regenerate post')
+      }
+    } catch {
+      toast.error('Failed to regenerate post')
+    } finally {
+      setRegenerating(false)
+    }
+  }
 
   return (
     <motion.div
@@ -110,7 +167,7 @@ function SuggestionCard({ suggestion, index }: { suggestion: any; index: number 
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.08 }}
     >
-      <Card className="h-full hover:shadow-lg transition-all group">
+      <Card className={cn("h-full hover:shadow-lg transition-all group", isApproved && "border-green-300 dark:border-green-700")}>
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
@@ -121,13 +178,33 @@ function SuggestionCard({ suggestion, index }: { suggestion: any; index: number 
                 {suggestion.title}
               </CardTitle>
             </div>
-            <Badge variant="outline" className="text-[10px] flex-shrink-0 capitalize">
-              {contentType}
-            </Badge>
+            <div className="flex gap-1 flex-shrink-0">
+              {isApproved && (
+                <Badge className="text-[10px] bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 border-0">
+                  <CheckCircle2 className="h-3 w-3 mr-0.5" />
+                  Approved
+                </Badge>
+              )}
+              <Badge variant="outline" className="text-[10px] capitalize">
+                {contentType}
+              </Badge>
+            </div>
           </div>
         </CardHeader>
 
         <CardContent className="space-y-3 pt-0">
+          {/* Hero Image */}
+          {heroImage?.url && (
+            <div className="rounded-md overflow-hidden border border-border/50">
+              <img
+                src={heroImage.url}
+                alt={suggestion.title}
+                className="w-full h-40 object-cover"
+                loading="lazy"
+              />
+            </div>
+          )}
+
           {/* Hook / Opening Line */}
           {hook && (
             <p className="text-sm font-medium text-foreground leading-snug line-clamp-3">
@@ -140,7 +217,7 @@ function SuggestionCard({ suggestion, index }: { suggestion: any; index: number 
             <div className="flex gap-2 p-2.5 rounded-md bg-muted/50 border border-border/50">
               <Quote className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0 mt-0.5" />
               <p className="text-xs text-muted-foreground italic leading-relaxed line-clamp-2">
-                "{transcriptQuote}"
+                &ldquo;{transcriptQuote}&rdquo;
               </p>
             </div>
           )}
@@ -202,6 +279,77 @@ function SuggestionCard({ suggestion, index }: { suggestion: any; index: number 
             </div>
           )}
 
+          {/* Action Buttons */}
+          <div className="flex gap-2 pt-1">
+            <Button
+              size="sm"
+              variant={isApproved ? 'secondary' : 'default'}
+              className={cn("flex-1 h-8 text-xs", !isApproved && "bg-green-600 hover:bg-green-700 text-white")}
+              disabled={approving || isApproved}
+              onClick={handleApprove}
+            >
+              {approving ? (
+                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-1" />
+              ) : (
+                <CheckCircle2 className="h-3 w-3 mr-1" />
+              )}
+              {isApproved ? 'Approved' : 'Approve'}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 text-xs"
+              disabled={regenerating}
+              onClick={handleRegenerate}
+            >
+              {regenerating ? (
+                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-primary mr-1" />
+              ) : (
+                <RefreshCw className="h-3 w-3 mr-1" />
+              )}
+              Redo
+            </Button>
+            {isApproved && (
+              <Button
+                size="sm"
+                className="h-8 text-xs bg-blue-600 hover:bg-blue-700 text-white"
+                disabled={publishing}
+                onClick={async () => {
+                  setPublishing(true)
+                  try {
+                    const res = await fetch('/api/posts/quick-publish', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ suggestionId: suggestion.id }),
+                    })
+                    const data = await res.json()
+                    if (res.ok && data.success) {
+                      const published = data.results?.filter((r: any) => r.status === 'published').length || 0
+                      const drafted = data.results?.filter((r: any) => r.status === 'draft').length || 0
+                      if (published > 0) toast.success(`Published to ${published} platform(s)!`)
+                      else if (drafted > 0) toast.info(`Saved as draft for ${drafted} platform(s). Connect accounts to publish.`)
+                      else toast.info('Post queued for publishing')
+                      onApprove?.(suggestion.id)
+                    } else {
+                      toast.error(data.error || 'Failed to publish')
+                    }
+                  } catch {
+                    toast.error('Failed to publish post')
+                  } finally {
+                    setPublishing(false)
+                  }
+                }}
+              >
+                {publishing ? (
+                  <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-1" />
+                ) : (
+                  <Send className="h-3 w-3 mr-1" />
+                )}
+                Publish
+              </Button>
+            )}
+          </div>
+
           {/* Expandable: Platform Copy + Carousel Slides */}
           <Button
             variant="ghost"
@@ -234,11 +382,16 @@ function SuggestionCard({ suggestion, index }: { suggestion: any; index: number 
                       <span className="text-xs font-medium capitalize">{platform}</span>
                     </div>
                     <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap border-l-2 border-border pl-3">
-                      {copy.caption?.substring(0, 300)}{copy.caption?.length > 300 ? '...' : ''}
+                      {copy.caption?.substring(0, 500)}{copy.caption?.length > 500 ? '...' : ''}
                     </p>
                     {copy.hashtags?.length > 0 && (
                       <p className="text-[10px] text-blue-500">
-                        {copy.hashtags.slice(0, 8).map((h: string) => `#${h}`).join(' ')}
+                        {copy.hashtags.slice(0, 10).map((h: string) => `#${h}`).join(' ')}
+                      </p>
+                    )}
+                    {copy.cta && (
+                      <p className="text-[10px] text-purple-500 font-medium">
+                        CTA: {copy.cta}
                       </p>
                     )}
                   </div>
@@ -381,10 +534,10 @@ export function SmartPostsGenerator({
     const existingSuggestions = await loadExistingSuggestions()
     const status = await checkGenerationStatus()
 
-    if (status === 'in_progress') {
+    if (status === 'pending' || status === 'running') {
       setGenerationInProgress(true)
       setIsGenerating(true)
-      setGenerationStep('Generation in progress...')
+      setGenerationStep(status === 'pending' ? 'Queued for generation...' : 'Generating posts with AI...')
       pollForCompletion()
     } else if (existingSuggestions.length === 0 && contentAnalysis && transcript) {
       await autoGeneratePosts()
@@ -405,8 +558,10 @@ export function SmartPostsGenerator({
         setIsGenerating(false)
         setGenerationInProgress(false)
         toast.error('Generation failed. Please try again.')
+      } else if (status === 'running') {
+        setGenerationStep('Generating posts & images with AI...')
       }
-    }, 3000)
+    }, 4000)
   }
 
   // ── Generation ────────────────────────────────────────────────────────
@@ -435,19 +590,12 @@ export function SmartPostsGenerator({
 
   const autoGeneratePosts = async () => {
     setIsGenerating(true)
-    setGenerationStep('Analyzing video content with GPT-5.2...')
-
-    await fetch('/api/posts/generation-status', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectId, status: 'in_progress' }),
-    }).catch(() => {})
-
+    setGenerationStep('Analyzing video content with AI...')
     toast.info('Creating AI-powered posts from your video...', { duration: 3000 })
 
     const autoSettings: ContentSettings = {
       ...settings,
-      contentTypes: ['carousel', 'quote', 'single'],
+      contentTypes: ['carousel', 'quote', 'single', 'thread', 'reel'],
       platforms: ['instagram', 'twitter', 'linkedin'],
       creativity: 0.7,
       tone: 'professional',
@@ -455,7 +603,7 @@ export function SmartPostsGenerator({
       includeHashtags: true,
       includeCTA: true,
       optimizeForEngagement: true,
-      usePersona: personas.length > 0 && !!personas[0]?.id,
+      usePersona: true,
       selectedPersonaId: personas[0]?.id || undefined,
       targetAudience: '',
       contentGoal: 'engagement',
@@ -463,48 +611,41 @@ export function SmartPostsGenerator({
 
     try {
       const data = await callGenerateAPI(autoSettings)
-      await loadExistingSuggestions()
-      toast.success(`${data.count || 5} smart posts ready!`)
-      if (onPostsGenerated && data.suggestions) {
-        onPostsGenerated(data.suggestions)
+      if (data.jobId) {
+        setGenerationStep('Generating posts & images...')
+        pollForCompletion()
+      } else {
+        await loadExistingSuggestions()
+        setIsGenerating(false)
+        setGenerationStep('')
       }
     } catch (error) {
       console.error('Auto-generation error:', error)
-      await fetch('/api/posts/generation-status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId, status: 'failed' }),
-      }).catch(() => {})
-    } finally {
       setIsGenerating(false)
       setGenerationStep('')
-      const status = await checkGenerationStatus()
-      if (status === 'in_progress') {
-        await fetch('/api/posts/generation-status', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ projectId, status: 'completed' }),
-        }).catch(() => {})
-      }
+      toast.error('Failed to start post generation')
     }
   }
 
   const handleGeneratePosts = async () => {
     setIsGenerating(true)
-    setGenerationStep('Generating content-aware posts with GPT-5.2...')
+    setGenerationStep('Generating content-aware posts with AI...')
 
     try {
       const data = await callGenerateAPI(settings)
-      await loadExistingSuggestions()
       setShowIntakeDialog(false)
-      toast.success(`${data.count || 5} smart posts generated!`)
-      if (onPostsGenerated) {
-        onPostsGenerated(data.suggestions)
+      if (data.jobId) {
+        setGenerationStep('Generating posts & images...')
+        pollForCompletion()
+      } else {
+        await loadExistingSuggestions()
+        setIsGenerating(false)
+        setGenerationStep('')
+        toast.success('Posts generated!')
       }
     } catch (error) {
       console.error('Generation error:', error)
       toast.error('Failed to generate posts. Please try again.')
-    } finally {
       setIsGenerating(false)
       setGenerationStep('')
     }
@@ -929,6 +1070,29 @@ export function SmartPostsGenerator({
               <h3 className="text-lg font-semibold">Generated Posts</h3>
               <div className="flex gap-2">
                 <Badge variant="secondary">{suggestions.length} posts</Badge>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      const res = await fetch(`/api/posts/export?projectId=${projectId}`)
+                      if (!res.ok) throw new Error('Export failed')
+                      const data = await res.json()
+                      const blob = new Blob([data.fullTextExport], { type: 'text/plain' })
+                      const url = URL.createObjectURL(blob)
+                      const a = document.createElement('a')
+                      a.href = url
+                      a.download = `${projectTitle.replace(/[^a-zA-Z0-9]/g, '_')}_social_content.txt`
+                      a.click()
+                      URL.revokeObjectURL(url)
+                      toast.success(`Exported ${data.stats.totalPosts} posts for ${data.stats.platforms.length} platforms`)
+                    } catch {
+                      toast.error('Failed to export content')
+                    }
+                  }}
+                >
+                  <ChevronDown className="h-4 w-4 mr-1" /> Export All
+                </Button>
                 <Button variant="outline" size="sm" onClick={loadExistingSuggestions}>
                   <RefreshCw className="h-4 w-4 mr-1" /> Refresh
                 </Button>
@@ -937,7 +1101,13 @@ export function SmartPostsGenerator({
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {suggestions.map((suggestion, index) => (
-                <SuggestionCard key={suggestion.id || index} suggestion={suggestion} index={index} />
+                <SuggestionCard
+                  key={suggestion.id || index}
+                  suggestion={suggestion}
+                  index={index}
+                  onApprove={() => loadExistingSuggestions()}
+                  onRegenerate={() => loadExistingSuggestions()}
+                />
               ))}
             </div>
           </div>

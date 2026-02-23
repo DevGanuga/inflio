@@ -95,7 +95,6 @@ export function EnhancedTranscriptEditor({
   const [subtitlesApplied, setSubtitlesApplied] = useState(false)
   const [vttBlobUrl, setVttBlobUrl] = useState<string | null>(null)
   const [burnSubtitles, setBurnSubtitles] = useState(false)
-  const [ffmpegAvailable, setFfmpegAvailable] = useState(false)
   const [processingTaskId, setProcessingTaskId] = useState<string | null>(null)
   const [burningProgress, setBurningProgress] = useState(0)
 
@@ -112,22 +111,6 @@ export function EnhancedTranscriptEditor({
     }
   }, [vttBlobUrl])
 
-  // Check FFmpeg availability on mount
-  useEffect(() => {
-    checkFFmpegAvailability()
-  }, [])
-
-  const checkFFmpegAvailability = async () => {
-    try {
-      const response = await fetch('/api/check-ffmpeg')
-      if (response.ok) {
-        const data = await response.json()
-        setFfmpegAvailable(data.available)
-      }
-    } catch (error) {
-      console.log('Failed to check FFmpeg availability')
-    }
-  }
 
   const handleSegmentEdit = (index: number, field: keyof TranscriptSegment, value: any) => {
     const newSegments = [...editingSegments]
@@ -211,9 +194,8 @@ export function EnhancedTranscriptEditor({
       
       await new Promise(resolve => setTimeout(resolve, 500)) // Small delay for better UX
       
-      if (burnSubtitles && ffmpegAvailable) {
-        // Burn subtitles into video
-        setProcessingStage('Starting subtitle burning process...')
+      if (burnSubtitles) {
+        setProcessingStage('Burning subtitles via Cloudinary...')
         setProgress(20)
         
         const response = await fetch('/api/apply-subtitles', {
@@ -224,7 +206,6 @@ export function EnhancedTranscriptEditor({
             videoUrl,
             segments: editingSegments,
             settings: subtitleSettings,
-            burnSubtitles: true
           })
         })
         
@@ -1097,30 +1078,19 @@ export function EnhancedTranscriptEditor({
                     <div className="space-y-4 p-4 border-t">
                       <h4 className="font-medium text-sm">Subtitle Options</h4>
                       
-                      {ffmpegAvailable && (
-                        <div className="flex items-center space-x-2">
-                          <Switch
-                            id="burn-subtitles"
-                            checked={burnSubtitles}
-                            onCheckedChange={setBurnSubtitles}
-                          />
-                          <Label htmlFor="burn-subtitles" className="text-sm cursor-pointer">
-                            Burn subtitles into video
-                            <span className="block text-xs text-muted-foreground mt-1">
-                              Creates a new video file with permanent subtitles (recommended for YouTube)
-                            </span>
-                          </Label>
-                        </div>
-                      )}
-                      
-                      {!ffmpegAvailable && burnSubtitles && (
-                        <Alert>
-                          <AlertCircle className="h-4 w-4" />
-                          <AlertDescription className="text-xs">
-                            Subtitle burning requires FFmpeg. Using overlay subtitles instead.
-                          </AlertDescription>
-                        </Alert>
-                      )}
+                      <div className="flex items-center space-x-2">
+                        <Switch
+                          id="burn-subtitles"
+                          checked={burnSubtitles}
+                          onCheckedChange={setBurnSubtitles}
+                        />
+                        <Label htmlFor="burn-subtitles" className="text-sm cursor-pointer">
+                          Burn subtitles into video
+                          <span className="block text-xs text-muted-foreground mt-1">
+                            Creates a new video file with permanent subtitles via Cloudinary (recommended for YouTube)
+                          </span>
+                        </Label>
+                      </div>
                     </div>
               </div>
             </TabsContent>

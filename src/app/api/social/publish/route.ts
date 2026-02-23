@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { publishToSocialPlatform, refreshAccessToken } from '@/lib/social/platform-publishers'
-import { handleError, AppError } from '@/lib/error-handler'
 import { z } from 'zod'
+import { PLATFORM_CONFIGS } from '@/lib/social/oauth-config'
 
 const publishSchema = z.object({
   content: z.string().min(1).max(5000),
@@ -11,74 +10,61 @@ const publishSchema = z.object({
   media: z.array(z.string()).optional(),
   scheduledFor: z.string().datetime().optional(),
   projectId: z.string().uuid().optional(),
-  clipIds: z.array(z.string()).optional() // Add support for clip IDs
 })
 
-// Helper function to ensure clips are downloaded
-async function ensureClipsDownloaded(clipIds: string[], projectId: string) {
-  const downloadedUrls: string[] = []
-  
-  for (const clipId of clipIds) {
-    try {
-      // Check if clip needs downloading
-      const checkResponse = await fetch(
-        `/api/download-clip?clipId=${clipId}&projectId=${projectId}`,
-        { method: 'GET' }
-      )
-      
-      if (!checkResponse.ok) {
-        console.error(`Failed to check clip ${clipId} status`)
-        continue
-      }
-      
-      const { needsDownload, currentUrl } = await checkResponse.json()
-      
-      if (needsDownload) {
-        // Download the clip
-        console.log(`Downloading clip ${clipId} for social media posting...`)
-        const downloadResponse = await fetch('/api/download-clip', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ clipId, projectId })
-        })
-        
-        if (downloadResponse.ok) {
-          const { url } = await downloadResponse.json()
-          downloadedUrls.push(url)
-        } else {
-          console.error(`Failed to download clip ${clipId}`)
-          // Fall back to current URL if available
-          if (currentUrl) {
-            downloadedUrls.push(currentUrl)
-          }
-        }
-      } else {
-        // Clip already downloaded
-        downloadedUrls.push(currentUrl)
-      }
-    } catch (error) {
-      console.error(`Error processing clip ${clipId}:`, error)
-    }
+async function refreshToken(platform: string, refreshTokenStr: string): Promise<{ accessToken: string; expiresIn?: number }> {
+  const config = PLATFORM_CONFIGS[platform]
+  if (!config) throw new Error(`Platform ${platform} not configured`)
+
+  const params = new URLSearchParams({
+    grant_type: 'refresh_token',
+    refresh_token: refreshTokenStr,
+    client_id: config.oauth.clientId,
+    client_secret: config.oauth.clientSecret,
+  })
+
+  const response = await fetch(config.oauth.tokenUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: params.toString(),
+  })
+
+  if (!response.ok) throw new Error('Token refresh failed')
+  const data = await response.json()
+  return { accessToken: data.access_token, expiresIn: data.expires_in }
+}
+
+async function getValidToken(integration: any): Promise<string> {
+  const isExpired = integration.token_expiration
+    ? new Date(integration.token_expiration) < new Date()
+    : false
+
+  if (isExpired && integration.refresh_token) {
+    const result = await refreshToken(integration.platform, integration.refresh_token)
+    await supabaseAdmin
+      .from('social_integrations')
+      .update({
+        token: result.accessToken,
+        token_expiration: new Date(Date.now() + (result.expiresIn || 3600) * 1000).toISOString(),
+        refresh_needed: false,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', integration.id)
+    return result.accessToken
   }
-  
-  return downloadedUrls
+
+  return integration.token
 }
 
 export async function POST(request: NextRequest) {
   try {
-    // Auth check
     const { userId } = await auth()
     if (!userId) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      )
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Validate request
     const body = await request.json()
     const validation = publishSchema.safeParse(body)
-    
     if (!validation.success) {
       return NextResponse.json(
         { error: 'Invalid request', details: validation.error.errors },
@@ -86,20 +72,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { content, platforms, media, scheduledFor, projectId, clipIds } = validation.data
-    const supabase = supabaseAdmin  // Use admin client — server-side route
-    
-    // If we have clip IDs and a project ID, ensure clips are downloaded
-    let finalMediaUrls = media || []
-    if (clipIds && clipIds.length > 0 && projectId) {
-      console.log(`Ensuring ${clipIds.length} clips are downloaded before posting...`)
-      const downloadedUrls = await ensureClipsDownloaded(clipIds, projectId)
-      // Add downloaded URLs to media
-      finalMediaUrls = [...finalMediaUrls, ...downloadedUrls]
-    }
+    const { content, platforms, media, scheduledFor, projectId } = validation.data
 
-    // Get connected integrations for the requested platforms
-    const { data: integrations, error: integrationsError } = await supabase
+    const { data: integrations, error: integrationsError } = await supabaseAdmin
       .from('social_integrations')
       .select('*')
       .eq('user_id', userId)
@@ -113,14 +88,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Create posts for each platform
+    const mediaUrls = media || []
     const posts = []
     const errors = []
 
     for (const integration of integrations) {
       try {
-        // Create post record
-        const { data: post, error: postError } = await supabase
+        const { data: post, error: postError } = await supabaseAdmin
           .from('social_posts')
           .insert({
             user_id: userId,
@@ -129,52 +103,35 @@ export async function POST(request: NextRequest) {
             state: scheduledFor ? 'scheduled' : 'publishing',
             publish_date: scheduledFor || new Date().toISOString(),
             content,
-            media_urls: finalMediaUrls,
-            settings: {
-              platform: integration.platform,
-              autoHashtags: true,
-              clipIds: clipIds || [] // Store clip IDs for reference
-            }
+            media_urls: mediaUrls,
+            settings: { platform: integration.platform },
           })
           .select()
           .single()
 
         if (postError) throw postError
 
-        // If not scheduled, publish immediately
         if (!scheduledFor) {
-          // Call platform-specific publish API
-          const publishResult = await publishToPlatform(integration, post)
-          
+          const token = await getValidToken(integration)
+          const publishResult = await publishToPlatform(integration.platform, token, post, integration.provider_identifier, mediaUrls)
+
           if (publishResult.success) {
-            // Update post state
-            await supabase
+            await supabaseAdmin
               .from('social_posts')
-              .update({ 
+              .update({
                 state: 'published',
-                analytics: 'analytics' in publishResult ? publishResult.analytics : {}
+                analytics: publishResult.analytics || {},
               })
               .eq('id', post.id)
-            
-            posts.push({
-              ...post,
-              state: 'published',
-              platformResponse: 'data' in publishResult ? publishResult.data : null
-            })
+
+            posts.push({ ...post, state: 'published', platformResponse: publishResult.data || null })
           } else {
-            // Update post state to failed
-            await supabase
+            await supabaseAdmin
               .from('social_posts')
-              .update({ 
-                state: 'failed',
-                error: 'error' in publishResult ? publishResult.error : 'Unknown error'
-              })
+              .update({ state: 'failed', error: publishResult.error })
               .eq('id', post.id)
-            
-            errors.push({
-              platform: integration.platform,
-              error: 'error' in publishResult ? publishResult.error : 'Unknown error'
-            })
+
+            errors.push({ platform: integration.platform, error: publishResult.error })
           }
         } else {
           posts.push(post)
@@ -182,7 +139,7 @@ export async function POST(request: NextRequest) {
       } catch (error) {
         errors.push({
           platform: integration.platform,
-          error: error instanceof Error ? error.message : 'Unknown error'
+          error: error instanceof Error ? error.message : 'Unknown error',
         })
       }
     }
@@ -192,243 +149,194 @@ export async function POST(request: NextRequest) {
       posts,
       errors: errors.length > 0 ? errors : undefined,
       scheduled: !!scheduledFor,
-      mediaUrls: finalMediaUrls // Return the final media URLs used
     })
-
   } catch (error) {
     console.error('Publish error:', error)
     return NextResponse.json(
-      { 
-        error: 'Failed to publish content',
-        message: error instanceof Error ? error.message : 'Unknown error occurred'
-      },
+      { error: 'Failed to publish content', message: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     )
   }
 }
 
-// Platform-specific publishing logic
-async function publishToPlatform(integration: any, post: any) {
-  const { platform, token } = integration
-  
+async function publishToPlatform(
+  platform: string,
+  token: string,
+  post: any,
+  providerIdentifier: string,
+  mediaUrls: string[]
+): Promise<any> {
   try {
     switch (platform) {
       case 'x':
       case 'twitter':
-        return await publishToTwitter(token, post)
-      
+        return await publishToX(token, post.content)
       case 'linkedin':
-        return await publishToLinkedIn(token, post, integration.provider_identifier)
-      
+        return await publishToLinkedIn(token, post.content, providerIdentifier, mediaUrls)
       case 'facebook':
+        return await publishToFacebook(token, post.content, providerIdentifier, mediaUrls)
       case 'instagram':
-        return await publishToMeta(platform, token, post, integration.provider_identifier)
-      
+        return await publishToInstagram(token, post.content, providerIdentifier, mediaUrls)
+      case 'tiktok':
+        return await publishToTikTok(token, post.content, providerIdentifier, mediaUrls)
       case 'youtube':
-        return await publishToYouTube(token, post)
-      
+        return { success: false, error: 'Use the dedicated YouTube upload for video publishing' }
       default:
-        return {
-          success: false,
-          error: `Platform ${platform} not yet implemented`
-        }
+        return { success: false, error: `Platform ${platform} not supported` }
     }
   } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Platform API error'
-    }
+    return { success: false, error: error instanceof Error ? error.message : 'Platform API error' }
   }
 }
 
-// Twitter/X Publishing
-async function publishToTwitter(token: string, post: any) {
+// --- X/Twitter ---
+async function publishToX(token: string, content: string) {
   const response = await fetch('https://api.twitter.com/2/tweets', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      text: post.content,
-      // Add media if present
-      ...(post.media_urls?.length > 0 && {
-        media: { media_ids: post.media_urls }
-      })
-    })
+    body: JSON.stringify({ text: content }),
   })
 
   const data = await response.json()
-  
-  if (!response.ok) {
-    throw new Error(data.detail || 'Failed to post to Twitter')
-  }
+  if (!response.ok) throw new Error(data.detail || data.title || 'Failed to post to X')
 
   return {
     success: true,
     data,
-    analytics: {
-      post_id: data.data.id,
-      url: `https://twitter.com/i/web/status/${data.data.id}`
-    }
+    analytics: { post_id: data.data.id, url: `https://x.com/i/status/${data.data.id}` },
   }
 }
 
-// LinkedIn Publishing
-async function publishToLinkedIn(token: string, post: any, authorId: string) {
-  // First, register the post
-  const registerResponse = await fetch('https://api.linkedin.com/v2/ugcPosts', {
+// --- LinkedIn (Community API v2) ---
+async function publishToLinkedIn(token: string, content: string, authorId: string, mediaUrls: string[]) {
+  const postBody: any = {
+    author: `urn:li:person:${authorId}`,
+    lifecycleState: 'PUBLISHED',
+    specificContent: {
+      'com.linkedin.ugc.ShareContent': {
+        shareCommentary: { text: content },
+        shareMediaCategory: mediaUrls.length > 0 ? 'IMAGE' : 'NONE',
+        ...(mediaUrls.length > 0 && {
+          media: mediaUrls.map(url => ({ status: 'READY', originalUrl: url })),
+        }),
+      },
+    },
+    visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' },
+  }
+
+  const response = await fetch('https://api.linkedin.com/v2/ugcPosts', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',
-      'X-Restli-Protocol-Version': '2.0.0'
+      'X-Restli-Protocol-Version': '2.0.0',
     },
-    body: JSON.stringify({
-      author: `urn:li:person:${authorId}`,
-      lifecycleState: 'PUBLISHED',
-      specificContent: {
-        'com.linkedin.ugc.ShareContent': {
-          shareCommentary: {
-            text: post.content
-          },
-          shareMediaCategory: post.media_urls?.length > 0 ? 'IMAGE' : 'NONE',
-          // Add media if present
-          ...(post.media_urls?.length > 0 && {
-            media: post.media_urls.map((url: string) => ({
-              status: 'READY',
-              originalUrl: url
-            }))
-          })
-        }
-      },
-      visibility: {
-        'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC'
-      }
-    })
-  })
-
-  const data = await registerResponse.json()
-  
-  if (!registerResponse.ok) {
-    throw new Error(data.message || 'Failed to post to LinkedIn')
-  }
-
-  return {
-    success: true,
-    data,
-    analytics: {
-      post_id: data.id,
-      url: `https://www.linkedin.com/feed/update/${data.id}`
-    }
-  }
-}
-
-// Meta (Facebook/Instagram) Publishing
-async function publishToMeta(platform: string, token: string, post: any, pageId: string) {
-  const endpoint = platform === 'instagram' 
-    ? `https://graph.facebook.com/v18.0/${pageId}/media`
-    : `https://graph.facebook.com/v18.0/${pageId}/feed`
-
-  const params: any = {
-    access_token: token,
-    message: post.content
-  }
-
-  // Handle media for Instagram
-  if (platform === 'instagram' && post.media_urls?.length > 0) {
-    params.image_url = post.media_urls[0]
-    params.caption = post.content
-    delete params.message
-  }
-
-  // Handle media for Facebook
-  if (platform === 'facebook' && post.media_urls?.length > 0) {
-    params.link = post.media_urls[0]
-  }
-
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    body: new URLSearchParams(params)
+    body: JSON.stringify(postBody),
   })
 
   const data = await response.json()
-  
-  if (!response.ok) {
-    throw new Error(data.error?.message || 'Failed to post to Meta platform')
-  }
-
-  // For Instagram, we need to publish the media after creating it
-  if (platform === 'instagram' && data.id) {
-    const publishResponse = await fetch(
-      `https://graph.facebook.com/v18.0/${pageId}/media_publish`,
-      {
-        method: 'POST',
-        body: new URLSearchParams({
-          creation_id: data.id,
-          access_token: token
-        })
-      }
-    )
-
-    const publishData = await publishResponse.json()
-    
-    if (!publishResponse.ok) {
-      throw new Error(publishData.error?.message || 'Failed to publish Instagram post')
-    }
-
-    return {
-      success: true,
-      data: publishData,
-      analytics: {
-        post_id: publishData.id,
-        url: `https://www.instagram.com/p/${publishData.id}`
-      }
-    }
-  }
+  if (!response.ok) throw new Error(data.message || 'Failed to post to LinkedIn')
 
   return {
     success: true,
     data,
-    analytics: {
-      post_id: data.id,
-      url: platform === 'facebook' 
-        ? `https://www.facebook.com/${data.id}`
-        : `https://www.instagram.com/p/${data.id}`
-    }
+    analytics: { post_id: data.id, url: `https://www.linkedin.com/feed/update/${data.id}` },
   }
 }
 
-// YouTube Publishing (Community Posts or Video Description)
-async function publishToYouTube(token: string, post: any) {
-  // YouTube doesn't have a direct "post" API like other platforms
-  // This would typically be used for community posts or video descriptions
-  // For now, return a placeholder
+// --- Facebook ---
+async function publishToFacebook(token: string, content: string, pageId: string, mediaUrls: string[]) {
+  const params = new URLSearchParams({ access_token: token, message: content })
+  if (mediaUrls.length > 0) params.append('link', mediaUrls[0])
+
+  const response = await fetch(`https://graph.facebook.com/v18.0/${pageId}/feed`, {
+    method: 'POST',
+    body: params,
+  })
+
+  const data = await response.json()
+  if (!response.ok) throw new Error(data.error?.message || 'Failed to post to Facebook')
+
   return {
-    success: false,
-    error: 'YouTube publishing requires video upload functionality'
+    success: true,
+    data,
+    analytics: { post_id: data.id, url: `https://www.facebook.com/${data.id}` },
   }
 }
 
-// Check for posts that need to be published
-export async function GET(request: NextRequest) {
-  try {
-    // This would typically be called by a cron job
-    // For now, we'll just return posts that are due to be published
-    
-    // Note: In a real implementation, you'd query for posts where:
-    // - state = 'scheduled'
-    // - publish_date <= now()
-    
-    return NextResponse.json({
-      message: 'Scheduler endpoint - implement cron job to call this'
-    })
-    
-  } catch (error) {
-    console.error('Error checking scheduled posts:', error)
-    return NextResponse.json(
-      { error: 'Failed to check scheduled posts' },
-      { status: 500 }
-    )
+// --- Instagram (2-step: create media container -> publish) ---
+async function publishToInstagram(token: string, content: string, pageId: string, mediaUrls: string[]) {
+  if (!mediaUrls || mediaUrls.length === 0) {
+    throw new Error('Instagram requires at least one image')
   }
-} 
+
+  const createParams = new URLSearchParams({
+    access_token: token,
+    image_url: mediaUrls[0],
+    caption: content,
+  })
+
+  const createRes = await fetch(`https://graph.facebook.com/v18.0/${pageId}/media`, {
+    method: 'POST',
+    body: createParams,
+  })
+
+  const createData = await createRes.json()
+  if (!createRes.ok) throw new Error(createData.error?.message || 'Failed to create Instagram media')
+
+  const publishRes = await fetch(`https://graph.facebook.com/v18.0/${pageId}/media_publish`, {
+    method: 'POST',
+    body: new URLSearchParams({ access_token: token, creation_id: createData.id }),
+  })
+
+  const publishData = await publishRes.json()
+  if (!publishRes.ok) throw new Error(publishData.error?.message || 'Failed to publish Instagram post')
+
+  return {
+    success: true,
+    data: publishData,
+    analytics: { post_id: publishData.id, url: `https://www.instagram.com/p/${publishData.id}/` },
+  }
+}
+
+// --- TikTok (Content Posting API) ---
+async function publishToTikTok(token: string, content: string, _userId: string, mediaUrls: string[]) {
+  if (!mediaUrls || mediaUrls.length === 0) {
+    return { success: false, error: 'TikTok requires a video to publish. Use clips from your project.' }
+  }
+
+  const initRes = await fetch('https://open.tiktokapis.com/v2/post/publish/content/init/', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json; charset=UTF-8',
+    },
+    body: JSON.stringify({
+      post_info: {
+        title: content.substring(0, 150),
+        privacy_level: 'SELF_ONLY',
+        disable_duet: false,
+        disable_comment: false,
+        disable_stitch: false,
+      },
+      source_info: {
+        source: 'PULL_FROM_URL',
+        video_url: mediaUrls[0],
+      },
+    }),
+  })
+
+  const initData = await initRes.json()
+  if (!initRes.ok || initData.error?.code) {
+    throw new Error(initData.error?.message || 'Failed to publish to TikTok')
+  }
+
+  return {
+    success: true,
+    data: initData,
+    analytics: { publish_id: initData.data?.publish_id },
+  }
+}

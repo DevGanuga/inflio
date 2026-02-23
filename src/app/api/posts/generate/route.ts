@@ -5,18 +5,20 @@ import { v4 as uuidv4 } from 'uuid'
 import {
   AdvancedPostsService,
   type GeneratePostsInput,
-  type BrandContext,
-  type PersonaContext,
   type ContentAnalysisContext
 } from '@/lib/ai-posts-advanced'
+import {
+  fetchBrandAndPersonaContext,
+  extractTranscriptText,
+} from '@/lib/ai-context'
 
 export const maxDuration = 120
 
 /**
  * POST /api/posts/generate
  *
- * Legacy endpoint — now delegates to the same AdvancedPostsService (GPT-5.2)
- * used by /api/posts/generate-smart.
+ * Synchronous generation endpoint. For most cases, prefer /api/posts/generate-smart
+ * which uses Inngest for background processing (including image generation).
  */
 export async function POST(request: NextRequest) {
   try {
@@ -41,7 +43,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Project ID and title are required' }, { status: 400 })
     }
 
-    // ── Fetch transcript from project if not provided ────────────────────
     let fullTranscript = transcript || ''
     if (!fullTranscript) {
       const { data: project } = await supabaseAdmin
@@ -49,16 +50,7 @@ export async function POST(request: NextRequest) {
         .select('transcription')
         .eq('id', projectId)
         .single()
-
-      if (project?.transcription) {
-        if (typeof project.transcription === 'string') {
-          fullTranscript = project.transcription
-        } else if (project.transcription.text) {
-          fullTranscript = project.transcription.text
-        } else if (project.transcription.segments) {
-          fullTranscript = project.transcription.segments.map((s: any) => s.text).join(' ')
-        }
-      }
+      fullTranscript = extractTranscriptText(project?.transcription)
     }
 
     if (!fullTranscript) {
@@ -68,64 +60,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // ── Fetch brand context ──────────────────────────────────────────────
-    let brand: BrandContext | undefined
-    const { data: profile } = await supabaseAdmin
-      .from('user_profiles')
-      .select('company_name, brand_voice, brand_colors, target_audience, content_goals, primary_platforms, brand_identity, brand_analysis')
-      .eq('clerk_user_id', userId)
-      .single()
+    const { brand, persona } = await fetchBrandAndPersonaContext(userId, personaId, true)
 
-    if (profile) {
-      const bi = profile.brand_identity || profile.brand_analysis
-      brand = {
-        companyName: profile.company_name || undefined,
-        voice: profile.brand_voice || (bi?.voice?.tone ? (Array.isArray(bi.voice.tone) ? bi.voice.tone.join(', ') : bi.voice.tone) : undefined),
-        personality: bi?.voice?.personality || undefined,
-        mission: bi?.brandStrategy?.mission || undefined,
-        values: bi?.brandStrategy?.values || undefined,
-        colors: {
-          primary: bi?.colors?.primary?.hex || (profile.brand_colors?.primary ? [profile.brand_colors.primary] : undefined),
-          secondary: bi?.colors?.secondary?.hex || (profile.brand_colors?.secondary ? [profile.brand_colors.secondary] : undefined),
-          accent: bi?.colors?.accent?.hex || (profile.brand_colors?.accent ? [profile.brand_colors.accent] : undefined),
-        },
-        targetAudience: {
-          description: profile.target_audience?.description || undefined,
-          demographics: bi?.targetAudience?.demographics || undefined,
-          psychographics: bi?.targetAudience?.psychographics || undefined,
-          needs: bi?.targetAudience?.needs || undefined,
-        },
-        contentGoals: profile.content_goals || undefined,
-        primaryPlatforms: profile.primary_platforms || undefined,
-      }
-    }
-
-    // ── Fetch persona context ────────────────────────────────────────────
-    let persona: PersonaContext | null = null
-    if (personaId) {
-      const { data: personaRecord } = await supabaseAdmin
-        .from('personas')
-        .select('id, name, description, status, metadata')
-        .eq('id', personaId)
-        .single()
-
-      if (personaRecord) {
-        const portraitCount =
-          personaRecord.metadata?.portraits?.length ||
-          personaRecord.metadata?.generalPortraitUrls?.length || 0
-
-        persona = {
-          id: personaRecord.id,
-          name: personaRecord.name,
-          description: personaRecord.description || undefined,
-          brandVoice: personaRecord.metadata?.brandVoice || undefined,
-          hasPortraits: portraitCount > 0,
-          portraitCount,
-        }
-      }
-    }
-
-    // ── Build analysis context ───────────────────────────────────────────
     const analysisCtx: ContentAnalysisContext = {
       topics: contentAnalysis?.topics || [],
       keywords: contentAnalysis?.keywords || [],
@@ -136,7 +72,6 @@ export async function POST(request: NextRequest) {
       socialMediaHooks: contentAnalysis?.contentSuggestions?.socialMediaHooks || [],
     }
 
-    // ── Generate ─────────────────────────────────────────────────────────
     const input: GeneratePostsInput = {
       transcript: fullTranscript,
       projectTitle,
@@ -146,12 +81,11 @@ export async function POST(request: NextRequest) {
       persona,
       tone: settings.tone,
       contentGoal: settings.contentGoal,
-      contentTypes: contentTypes,
+      contentTypes,
     }
 
     const posts = await AdvancedPostsService.generateAdvancedPosts(input)
 
-    // ── Save to DB ───────────────────────────────────────────────────────
     const suggestions = posts.map((post) => {
       const suggestionId = uuidv4()
       const copyVariants: Record<string, any> = {}
@@ -177,7 +111,9 @@ export async function POST(request: NextRequest) {
         description: post.hook,
         platforms: Object.keys(copyVariants),
         copy_variants: copyVariants,
-        images: post.imagePrompt ? [{ id: uuidv4(), type: 'hero', prompt: post.imagePrompt, dimensions: post.imageDimensions || '1080x1350', position: 0 }] : [],
+        images: post.imagePrompt
+          ? [{ id: uuidv4(), type: 'hero', prompt: post.imagePrompt, dimensions: post.imageDimensions || '1080x1350', position: 0, url: null }]
+          : [],
         visual_style: { style: post.imageStyle || 'modern', colors: brand?.colors?.primary || [] },
         engagement_data: {
           predicted_reach: post.engagement?.estimatedReach || 'medium',

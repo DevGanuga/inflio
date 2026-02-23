@@ -145,16 +145,22 @@ async function publishToPlatform(
     case 'x':
     case 'twitter':
       return await publishToX(integration.token, post)
-    
+
     case 'facebook':
       return await publishToFacebook(integration.token, post, integration.provider_identifier)
-    
+
     case 'instagram':
       return await publishToInstagram(integration.token, post, integration.provider_identifier)
-    
+
+    case 'linkedin':
+      return await publishToLinkedIn(integration.token, post, integration.provider_identifier)
+
+    case 'tiktok':
+      return await publishToTikTok(integration.token, post)
+
     case 'youtube':
-      return await publishToYouTube(integration.token, post)
-    
+      return { success: false, error: 'Use the dedicated YouTube upload for video publishing' }
+
     default:
       return { success: false, error: `Platform ${platform} not implemented` }
   }
@@ -301,12 +307,84 @@ async function publishToInstagram(token: string, post: any, pageId: string) {
   }
 }
 
-// YouTube Publishing (simplified - full implementation would be more complex)
-async function publishToYouTube(token: string, post: any) {
-  // YouTube video upload is complex and requires resumable uploads
-  // This is a simplified version
-  return {
-    success: false,
-    error: 'YouTube publishing requires video upload implementation'
+// LinkedIn Publishing
+async function publishToLinkedIn(token: string, post: any, authorId: string) {
+  try {
+    const response = await fetch('https://api.linkedin.com/v2/ugcPosts', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'X-Restli-Protocol-Version': '2.0.0',
+      },
+      body: JSON.stringify({
+        author: `urn:li:person:${authorId}`,
+        lifecycleState: 'PUBLISHED',
+        specificContent: {
+          'com.linkedin.ugc.ShareContent': {
+            shareCommentary: { text: post.content },
+            shareMediaCategory: post.media_urls?.length > 0 ? 'IMAGE' : 'NONE',
+            ...(post.media_urls?.length > 0 && {
+              media: post.media_urls.map((url: string) => ({ status: 'READY', originalUrl: url })),
+            }),
+          },
+        },
+        visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' },
+      }),
+    })
+
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.message || 'Failed to post to LinkedIn')
+
+    return {
+      success: true,
+      platformPostId: data.id,
+      analytics: { url: `https://www.linkedin.com/feed/update/${data.id}` },
+    }
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'LinkedIn API error' }
+  }
+}
+
+// TikTok Publishing
+async function publishToTikTok(token: string, post: any) {
+  try {
+    if (!post.media_urls || post.media_urls.length === 0) {
+      return { success: false, error: 'TikTok requires a video to publish' }
+    }
+
+    const response = await fetch('https://open.tiktokapis.com/v2/post/publish/content/init/', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json; charset=UTF-8',
+      },
+      body: JSON.stringify({
+        post_info: {
+          title: (post.content || '').substring(0, 150),
+          privacy_level: 'SELF_ONLY',
+          disable_duet: false,
+          disable_comment: false,
+          disable_stitch: false,
+        },
+        source_info: {
+          source: 'PULL_FROM_URL',
+          video_url: post.media_urls[0],
+        },
+      }),
+    })
+
+    const data = await response.json()
+    if (!response.ok || data.error?.code) {
+      throw new Error(data.error?.message || 'Failed to publish to TikTok')
+    }
+
+    return {
+      success: true,
+      platformPostId: data.data?.publish_id,
+      analytics: { publish_id: data.data?.publish_id },
+    }
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'TikTok API error' }
   }
 } 

@@ -2,7 +2,6 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getOpenAI } from '@/lib/openai'
 import { AIImageService } from '@/lib/ai-image-service'
-import { MockPostsGenerator } from './posts-service-mock'
 
 export type PostContentType = 'carousel' | 'quote' | 'single' | 'thread' | 'reel' | 'story'
 export type Platform = 'instagram' | 'twitter' | 'linkedin' | 'facebook' | 'youtube' | 'tiktok'
@@ -349,16 +348,10 @@ Return a JSON object with:
 
     const response = completion.choices[0].message.content
     if (!response) {
-      console.warn('[PostsService] No response from AI, using mock data')
-      return MockPostsGenerator.generateMockContentIdea({ contentType, projectTitle })
+      throw new Error('No response from AI for content idea generation')
     }
     
-    try {
-      return JSON.parse(response)
-    } catch (parseError) {
-      console.error('[PostsService] Failed to parse AI response:', parseError)
-      return MockPostsGenerator.generateMockContentIdea({ contentType, projectTitle })
-    }
+    return JSON.parse(response)
   }
 
   /**
@@ -409,10 +402,8 @@ Return a JSON object with:
             personaId
           })
         } catch (aiError) {
-          console.warn(`[PostsService] AI image generation failed for image ${i + 1}, using mock image:`, aiError)
-          // Use mock image if AI service fails
-          const mockImages = MockPostsGenerator.generateMockImages(1, contentType)
-          imageUrl = mockImages[0].url
+          console.warn(`[PostsService] AI image generation failed for image ${i + 1}:`, aiError)
+          imageUrl = null
         }
 
         // Store image metadata in memory for now
@@ -433,20 +424,6 @@ Return a JSON object with:
         images.push(imageRecord)
       } catch (error) {
         console.error(`Failed to process image ${i + 1}:`, error)
-        // Add a mock image as fallback
-        const mockImages = MockPostsGenerator.generateMockImages(1, contentType)
-        images.push({
-          suggestion_id: suggestionId,
-          user_id: userId,
-          url: mockImages[0].url,
-          platform: 'instagram',
-          dimensions: dimensions.instagram,
-          prompt: 'Mock image',
-          model: 'mock',
-          persona_id: personaId,
-          position: i,
-          status: 'generated'
-        })
       }
     }
 
@@ -562,8 +539,7 @@ Return JSON:
         if (response) {
           copy = JSON.parse(response) as PlatformCopy;
         } else {
-          // Fallback to mock if no response
-          copy = MockPostsGenerator.generateMockPlatformCopy({ contentIdea, platform, contentType });
+          throw new Error(`No AI response for ${platform} copy generation`)
         }
         
         copyVariants[platform] = copy;
@@ -583,27 +559,6 @@ Return JSON:
           })
       } catch (error) {
         console.error(`Failed to generate ${platform} copy:`, error)
-        // Use mock data as fallback
-        const mockCopy = MockPostsGenerator.generateMockPlatformCopy({ contentIdea, platform, contentType });
-        copyVariants[platform] = mockCopy
-        
-        // Still try to store in database
-        try {
-          await adminSupabase
-            .from('post_copy')
-            .insert({
-              suggestion_id: suggestionId,
-              platform,
-              caption: mockCopy.caption,
-              hashtags: mockCopy.hashtags || [],
-              cta: (mockCopy as any).cta || '',
-              title: (mockCopy as any).title || null,
-              description: (mockCopy as any).description || null,
-              total_length: mockCopy.caption.length + (mockCopy.hashtags?.join(' ').length || 0)
-            })
-        } catch (dbError) {
-          console.error(`Failed to store ${platform} copy in database:`, dbError)
-        }
       }
     }
 

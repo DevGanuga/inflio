@@ -77,7 +77,7 @@ export async function fetchBrandContext(userId: string): Promise<BrandContext | 
 export async function fetchPersonaContext(personaId: string): Promise<PersonaContext | null> {
   const { data: personaRecord } = await supabaseAdmin
     .from('personas')
-    .select('id, name, description, status, metadata')
+    .select('id, name, description, status, metadata, lora_model_url, lora_trigger_phrase')
     .eq('id', personaId)
     .single()
 
@@ -95,6 +95,8 @@ export async function fetchPersonaContext(personaId: string): Promise<PersonaCon
     brandVoice: personaRecord.metadata?.brandVoice || undefined,
     hasPortraits: portraitCount > 0,
     portraitCount,
+    loraModelUrl: personaRecord.lora_model_url || undefined,
+    loraTriggerPhrase: personaRecord.lora_trigger_phrase || undefined,
   }
 }
 
@@ -106,11 +108,18 @@ export async function fetchPersonaContext(personaId: string): Promise<PersonaCon
  */
 export async function fetchBrandAndPersonaContext(
   userId: string,
-  personaId?: string | null
+  personaId?: string | null,
+  autoResolvePersona = false
 ): Promise<{ brand: BrandContext | undefined; persona: PersonaContext | null }> {
+  let resolvedPersonaId = personaId
+
+  if (!resolvedPersonaId && autoResolvePersona) {
+    resolvedPersonaId = await fetchDefaultPersonaId(userId)
+  }
+
   const [brand, persona] = await Promise.all([
     fetchBrandContext(userId),
-    personaId ? fetchPersonaContext(personaId) : Promise.resolve(null),
+    resolvedPersonaId ? fetchPersonaContext(resolvedPersonaId) : Promise.resolve(null),
   ])
 
   return { brand, persona }
