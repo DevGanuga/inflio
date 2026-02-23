@@ -1,9 +1,8 @@
 import { serve } from 'inngest/next'
 import { inngest } from '@/inngest/client'
 import {
-  processKlapVideo,
-  checkKlapStatus,
   processVizardVideo,
+  checkVizardStatus,
   generatePersonaPortraits,
   trainPersonaLoRA,
   batchGenerateThumbnails,
@@ -14,9 +13,8 @@ import {
 export const { GET, POST, PUT } = serve({
   client: inngest,
   functions: [
-    processKlapVideo,
-    checkKlapStatus,
     processVizardVideo,
+    checkVizardStatus,
     generatePersonaPortraits,
     trainPersonaLoRA,
     batchGenerateThumbnails,
