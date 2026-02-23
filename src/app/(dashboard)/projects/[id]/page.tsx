@@ -3161,239 +3161,156 @@ ${post.tags.map(tag => `- ${tag}`).join('\n')}
       </div>
       
       {/* Video Modal */}
+      <AnimatePresence>
       {showVideoModal && selectedClip && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-sm"
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-8 bg-black/90 backdrop-blur-sm"
           onClick={() => setShowVideoModal(false)}
         >
           <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            className="relative max-w-6xl w-full"
+            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 10 }}
+            transition={{ type: "spring", damping: 25, stiffness: 300 }}
+            className="relative max-w-5xl w-full max-h-[90vh]"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Close button */}
             <Button
               variant="ghost"
               size="icon"
-              className="absolute -top-12 right-0 text-white hover:bg-white/20 z-10"
+              className="absolute -top-12 right-0 text-white/70 hover:text-white hover:bg-white/10 z-10 rounded-full"
               onClick={() => setShowVideoModal(false)}
             >
-              <IconX className="h-6 w-6" />
+              <IconX className="h-5 w-5" />
             </Button>
             
-            <div className="rounded-lg overflow-hidden shadow-2xl">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-0">
+            <div className="rounded-xl overflow-hidden shadow-2xl border border-white/10">
+              <div className="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-0">
                 {/* Left: Video Player */}
-                <div className="bg-black relative flex items-center justify-center">
-                  <div className="w-full max-w-sm">
-                    <div className="aspect-[9/16] relative bg-black rounded-lg overflow-hidden">
-                      {selectedClip.exportUrl ? (
-                        <video
-                          key={selectedClip.id}
-                          src={selectedClip.exportUrl}
-                          className="w-full h-full object-contain"
-                          controls
-                          controlsList="nodownload"
-                          autoPlay
-                          playsInline
-                          muted={false}
-                          crossOrigin="anonymous"
-                          onLoadedMetadata={(e) => {
-                            const durationElement = document.querySelector(`[data-modal-clip-duration="${selectedClip.id}"]`)
-                            if (durationElement && e.currentTarget.duration) {
-                              durationElement.textContent = formatDuration(e.currentTarget.duration)
-                            }
-                          }}
-                          onError={(e) => {
-                            console.error(`Failed to load video for clip ${selectedClip.id}`)
-                            // Try to fall back to previewUrl if exportUrl fails
-                            if (e.currentTarget.src === selectedClip.exportUrl && selectedClip.previewUrl) {
-                              console.log('Falling back to preview URL')
-                              e.currentTarget.src = selectedClip.previewUrl
-                            } else {
-                              // Show error state
-                              e.currentTarget.style.display = 'none'
-                              const parent = e.currentTarget.parentElement
-                              if (parent && !parent.querySelector('.error-state')) {
-                                const errorDiv = document.createElement('div')
-                                errorDiv.className = 'error-state flex flex-col items-center justify-center h-full text-gray-400'
-                                errorDiv.innerHTML = `
-                                  <svg class="h-12 w-12 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-                                  </svg>
-                                  <p class="text-sm">Video playback failed</p>
-                                  <p class="text-xs mt-1">The video might still be processing</p>
-                                `
-                                parent.appendChild(errorDiv)
-                              }
-                            }
-                          }}
-                        />
-                      ) : (
-                        <div className="flex items-center justify-center h-full">
-                          <div className="text-center">
-                            <IconVideoOff className="h-16 w-16 mx-auto mb-2 text-gray-600" />
-                            <p className="text-gray-400">Video not available</p>
-                            <p className="text-xs text-gray-500 mt-1">The clip might still be processing</p>
-                          </div>
-                        </div>
-                      )}
-                    </div>
+                <div className="bg-black flex items-center justify-center p-4 lg:p-6">
+                  <div className="w-full max-w-[320px]">
+                    <EnhancedVideoPlayer
+                      key={selectedClip.id}
+                      videoUrl={selectedClip.exportUrl || selectedClip.previewUrl || null}
+                      aspectRatio="portrait"
+                      compact
+                      autoPlay
+                    />
                   </div>
                 </div>
                 
                 {/* Right: Clip Details */}
-                <div className="p-8 space-y-6 overflow-y-auto max-h-[80vh] bg-background">
-                  {/* Title */}
+                <div className="p-6 lg:p-8 space-y-5 overflow-y-auto max-h-[80vh] bg-background">
+                  {/* Header */}
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h2 className="text-xl font-bold leading-tight">{selectedClip.title || 'Untitled Clip'}</h2>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {formatDuration(selectedClip.duration || (selectedClip.endTime - selectedClip.startTime))}
+                        {selectedClip.tags && selectedClip.tags.length > 0 && (
+                          <span className="ml-2">
+                            {selectedClip.tags.slice(0, 3).map((tag: string) => `#${tag}`).join(' ')}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                    {/* Score badge inline */}
+                    <div className={cn(
+                      "flex-shrink-0 px-3 py-1.5 rounded-lg text-sm font-bold",
+                      (selectedClip.score || 0) >= 90 ? "bg-red-500/15 text-red-500" :
+                      (selectedClip.score || 0) >= 70 ? "bg-orange-500/15 text-orange-500" :
+                      (selectedClip.score || 0) >= 50 ? "bg-yellow-500/15 text-yellow-600" :
+                      "bg-muted text-muted-foreground"
+                    )}>
+                      {Math.round(selectedClip.score || 0)}/100
+                    </div>
+                  </div>
+
+                  {/* Virality score bar */}
                   <div>
-                    <h2 className="text-2xl font-bold">{selectedClip.title || 'Untitled Clip'}</h2>
+                    <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
+                      <span>Virality Score</span>
+                      <span className="font-medium">
+                        {(selectedClip.score || 0) >= 90 ? "Viral Potential" :
+                         (selectedClip.score || 0) >= 70 ? "High Engagement" :
+                         (selectedClip.score || 0) >= 50 ? "Good Content" :
+                         "Needs Improvement"}
+                      </span>
+                    </div>
+                    <div className="relative h-2 bg-muted rounded-full overflow-hidden">
+                      <motion.div
+                        className={cn(
+                          "absolute left-0 top-0 h-full rounded-full",
+                          (selectedClip.score || 0) >= 90 ? "bg-gradient-to-r from-red-500 to-pink-500" :
+                          (selectedClip.score || 0) >= 70 ? "bg-gradient-to-r from-orange-500 to-yellow-500" :
+                          (selectedClip.score || 0) >= 50 ? "bg-gradient-to-r from-yellow-500 to-green-500" :
+                          "bg-muted-foreground/40"
+                        )}
+                        initial={{ width: 0 }}
+                        animate={{ width: `${selectedClip.score || 0}%` }}
+                        transition={{ duration: 0.8, ease: "easeOut" }}
+                      />
+                    </div>
+                    {selectedClip.viralityExplanation && (
+                      <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
+                        {selectedClip.viralityExplanation}
+                      </p>
+                    )}
                   </div>
                   
-                  {/* Transcript - Primary Focus */}
+                  {/* Transcript */}
                   {selectedClip.transcript && (
-                    <div className="bg-gradient-to-br from-primary/10 to-primary/5 rounded-xl p-6 border-2 border-primary/20">
-                      <h3 className="font-semibold mb-3 flex items-center gap-2 text-lg">
-                        <IconFileText className="h-5 w-5 text-primary" />
+                    <div className="bg-muted/30 rounded-lg p-4 border">
+                      <h3 className="font-medium mb-2 flex items-center gap-2 text-sm">
+                        <IconFileText className="h-4 w-4 text-primary" />
                         Transcript
                       </h3>
-                      <div className="max-h-64 overflow-y-auto pr-2">
-                        <p className="text-sm whitespace-pre-wrap leading-relaxed">{selectedClip.transcript}</p>
+                      <div className="max-h-48 overflow-y-auto">
+                        <p className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">{selectedClip.transcript}</p>
                       </div>
                     </div>
                   )}
-                  
-                  {/* Enhanced Virality Score Details */}
-                  <div className={cn(
-                    "p-6 rounded-xl border-2 relative overflow-hidden",
-                    (selectedClip.score || 0) >= 0.9 ? "bg-gradient-to-br from-red-500/20 via-pink-500/10 to-transparent border-red-500/40" :
-                    (selectedClip.score || 0) >= 0.7 ? "bg-gradient-to-br from-orange-500/20 via-yellow-500/10 to-transparent border-orange-500/40" :
-                    (selectedClip.score || 0) >= 0.5 ? "bg-gradient-to-br from-yellow-500/20 via-green-500/10 to-transparent border-yellow-500/40" :
-                    "bg-gradient-to-br from-gray-500/20 via-gray-600/10 to-transparent border-gray-500/40"
-                  )}>
-                    <div className="relative">
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="flex items-center gap-3">
-                          <div className={cn(
-                            "p-3 rounded-xl shadow-lg",
-                            (selectedClip.score || 0) >= 0.9 ? "bg-gradient-to-br from-red-500 to-pink-500" :
-                            (selectedClip.score || 0) >= 0.7 ? "bg-gradient-to-br from-orange-500 to-yellow-500" :
-                            (selectedClip.score || 0) >= 0.5 ? "bg-gradient-to-br from-yellow-500 to-green-500" :
-                            "bg-gradient-to-br from-gray-500 to-gray-600"
-                          )}>
-                            <IconSparkles className="h-6 w-6 text-white" />
-                          </div>
-                          <div>
-                            <h3 className="text-lg font-semibold">Virality Score Analysis</h3>
-                            <div className="flex items-baseline gap-2">
-                              <span className={cn(
-                                "text-3xl font-bold",
-                                (selectedClip.score || 0) >= 90 ? "text-red-600" :
-                                (selectedClip.score || 0) >= 70 ? "text-orange-600" :
-                                (selectedClip.score || 0) >= 50 ? "text-yellow-600" :
-                                "text-gray-600"
-                              )}>{Math.round(selectedClip.score || 0)}</span>
-                              <span className="text-lg text-muted-foreground">/100</span>
-                            </div>
-                          </div>
-                        </div>
-                        <Badge className={cn(
-                          "text-sm px-4 py-1.5 font-semibold shadow-md",
-                          (selectedClip.score || 0) >= 90 ? "bg-gradient-to-r from-red-500 to-pink-500 text-white border-0" :
-                          (selectedClip.score || 0) >= 70 ? "bg-gradient-to-r from-orange-500 to-yellow-500 text-white border-0" :
-                          (selectedClip.score || 0) >= 50 ? "bg-gradient-to-r from-yellow-500 to-green-500 text-black border-0" :
-                          "bg-gradient-to-r from-gray-500 to-gray-600 text-white border-0"
-                        )}>
-                          {(selectedClip.score || 0) >= 90 ? "🔥 Viral Potential" :
-                           (selectedClip.score || 0) >= 70 ? "⚡ High Engagement" :
-                           (selectedClip.score || 0) >= 50 ? "✨ Good Content" :
-                           "💡 Needs Improvement"}
-                        </Badge>
-                      </div>
 
-                      {/* Score Bar */}
-                      <div className="mb-4">
-                        <div className="relative h-3 bg-black/10 rounded-full overflow-hidden">
-                          <motion.div
-                            className={cn(
-                              "absolute left-0 top-0 h-full rounded-full shadow-lg",
-                              (selectedClip.score || 0) >= 90 ? "bg-gradient-to-r from-red-500 via-pink-500 to-red-400" :
-                              (selectedClip.score || 0) >= 70 ? "bg-gradient-to-r from-orange-500 via-yellow-500 to-orange-400" :
-                              (selectedClip.score || 0) >= 50 ? "bg-gradient-to-r from-yellow-500 via-green-500 to-yellow-400" :
-                              "bg-gradient-to-r from-gray-500 to-gray-400"
-                            )}
-                            initial={{ width: 0 }}
-                            animate={{ width: `${selectedClip.score || 0}%` }}
-                            transition={{ duration: 1, ease: "easeOut" }}
-                          />
-                        </div>
-                      </div>
-                      
-                      {/* Detailed Explanation */}
-                      {selectedClip.viralityExplanation && (
-                        <div className="pt-4 border-t">
-                          <p className="text-sm text-muted-foreground leading-relaxed">
-                            <span className="font-semibold text-foreground">Analysis:</span> {selectedClip.viralityExplanation}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  
-                  {/* Clip Duration */}
-                  <div className="p-4 rounded-lg bg-muted/30 border">
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-                      <IconClock className="h-4 w-4" />
-                      Duration
-                    </div>
-                    <p className="font-semibold text-lg">{formatDuration(selectedClip.duration || (selectedClip.endTime - selectedClip.startTime))}</p>
-                  </div>
-                  
                   {/* Tags */}
                   {selectedClip.tags && selectedClip.tags.length > 0 && (
-                    <div>
-                      <h3 className="font-semibold mb-3 flex items-center gap-2">
-                        <IconHash className="h-5 w-5 text-primary" />
-                        Tags
-                      </h3>
-                      <div className="flex flex-wrap gap-2">
-                        {selectedClip.tags.map((tag: string, idx: number) => (
-                          <Badge key={idx} variant="secondary" className="text-sm">
-                            #{tag}
-                          </Badge>
-                        ))}
-                      </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedClip.tags.map((tag: string, idx: number) => (
+                        <Badge key={idx} variant="secondary" className="text-xs">
+                          #{tag}
+                        </Badge>
+                      ))}
                     </div>
                   )}
                   
-
-                  
-                  {/* Platform Captions (if available) */}
+                  {/* Platform Captions */}
                   {selectedClip.publicationCaptions && Object.keys(selectedClip.publicationCaptions).length > 0 && (
                     <div>
-                      <h3 className="font-semibold mb-3 flex items-center gap-2">
-                        <IconShare2 className="h-5 w-5 text-primary" />
+                      <h3 className="font-medium mb-2 flex items-center gap-2 text-sm">
+                        <IconShare2 className="h-4 w-4 text-primary" />
                         Platform Captions
                       </h3>
                       <div className="space-y-2">
                         {Object.entries(selectedClip.publicationCaptions).map(([platform, caption]) => (
-                          <div key={platform} className="p-3 rounded-lg bg-muted/30 border">
-                            <div className="flex items-center justify-between mb-2">
-                              <Badge variant="outline" className="capitalize">
-                                {platform}
-                              </Badge>
+                          <div key={platform} className="p-3 rounded-lg bg-muted/30 border text-sm">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="font-medium capitalize text-xs">{platform}</span>
                               <Button
                                 size="sm"
                                 variant="ghost"
+                                className="h-6 px-2"
                                 onClick={() => {
                                   copyToClipboard(caption as string, `${platform}-caption`)
                                   toast.success(`${platform} caption copied!`)
                                 }}
                               >
-                                <IconCopy className="h-4 w-4" />
+                                <IconCopy className="h-3 w-3" />
                               </Button>
                             </div>
-                            <p className="text-sm text-muted-foreground">{caption as string}</p>
+                            <p className="text-muted-foreground text-xs">{caption as string}</p>
                           </div>
                         ))}
                       </div>
@@ -3401,25 +3318,26 @@ ${post.tags.map(tag => `- ${tag}`).join('\n')}
                   )}
                   
                   {/* Actions */}
-                  <div className="space-y-3 pt-4 border-t">
+                  <div className="flex gap-2 pt-3 border-t">
                     {selectedClip.transcript && (
                       <Button
-                        className="w-full"
                         variant="outline"
+                        size="sm"
+                        className="flex-1"
                         onClick={() => {
                           copyToClipboard(selectedClip.transcript!, 'clip-transcript')
-                          toast.success('Transcript copied to clipboard')
+                          toast.success('Transcript copied')
                         }}
                       >
-                        <IconCopy className="h-4 w-4 mr-2" />
+                        <IconCopy className="h-4 w-4 mr-1.5" />
                         Copy Transcript
                       </Button>
                     )}
                     <Button
-                      className="w-full"
+                      size="sm"
+                      className="flex-1"
                       onClick={() => {
                         setShowVideoModal(false)
-                        // Navigate to staging with this clip selected
                         const contentToStage = [{
                           id: selectedClip.id,
                           type: 'clip',
@@ -3441,16 +3359,17 @@ ${post.tags.map(tag => `- ${tag}`).join('\n')}
                         router.push(`/projects/${projectId}/stage`)
                       }}
                     >
-                      <IconRocket className="h-4 w-4 mr-2" />
-                      Publish This Clip
+                      <IconRocket className="h-4 w-4 mr-1.5" />
+                      Publish Clip
                     </Button>
                   </div>
                 </div>
               </div>
             </div>
           </motion.div>
-        </div>
+        </motion.div>
       )}
+      </AnimatePresence>
 
 
       

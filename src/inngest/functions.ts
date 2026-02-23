@@ -2,6 +2,7 @@ import { inngest } from './client'
 import { VizardAPIService } from '@/lib/vizard-api'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { updateTaskProgressServer, updateProjectServer } from '@/lib/server-project-utils'
+import { ClipSettings, DEFAULT_CLIP_SETTINGS } from '@/lib/project-types'
 
 /**
  * Process video clips with Vizard AI
@@ -19,12 +20,11 @@ export const processVizardVideo = inngest.createFunction(
   },
   { event: 'vizard/video.process' },
   async ({ event, step }) => {
-    const { projectId, videoUrl, userId, title } = event.data
+    const { projectId, videoUrl, userId, title, clipSettings: userClipSettings } = event.data
 
     console.log('[Inngest] Starting Vizard clip generation for:', projectId)
 
     // Check if Vizard project already exists (idempotency)
-    // Use admin client since this runs server-side in Inngest (browser client won't work here)
     const { data: existingProject } = await supabaseAdmin
       .from('projects')
       .select('vizard_project_id')
@@ -42,29 +42,38 @@ export const processVizardVideo = inngest.createFunction(
       }
     }
 
-    // Progress already set to 5% by process route - update to 10% when starting
     await updateTaskProgressServer(projectId, 'clips', 10, 'processing')
 
-    // Create Vizard project with direct video URL
+    const cs: ClipSettings = { ...DEFAULT_CLIP_SETTINGS, ...userClipSettings }
+
     const vizardProject = await step.run('create-vizard-project', async () => {
       console.log('[Inngest] Creating Vizard project for:', projectId)
-      console.log('[Inngest] Using direct video URL:', videoUrl)
+      console.log('[Inngest] Clip settings:', JSON.stringify(cs))
 
       const webhookUrl = process.env.VIZARD_WEBHOOK_URL || `${process.env.NEXT_PUBLIC_APP_URL}/api/webhooks/vizard`
 
-      const project = await VizardAPIService.createProject({
-        lang: 'auto',                          // Auto-detect language
-        preferLength: VizardAPIService.ClipLength.AUTO,  // AI decides clip length
-        videoUrl: videoUrl,                    // Direct Supabase URL
+      const vizardParams: Record<string, any> = {
+        lang: 'auto',
+        preferLength: cs.preferLength,
+        videoUrl,
         videoType: VizardAPIService.VideoType.REMOTE_FILE,
-        ext: 'mp4',                            // Required for videoType 1
-        ratioOfClip: VizardAPIService.AspectRatio.VERTICAL,  // 9:16 for TikTok/Reels
-        subtitleSwitch: 1,                     // Show subtitles
-        headlineSwitch: 1,                     // Show AI headline
-        maxClipNumber: 20,                     // Max 20 clips
+        ext: 'mp4',
+        ratioOfClip: cs.ratioOfClip,
+        subtitleSwitch: cs.subtitleSwitch,
+        headlineSwitch: cs.headlineSwitch,
+        maxClipNumber: cs.maxClipNumber,
+        removeSilenceSwitch: cs.removeSilenceSwitch,
+        emojiSwitch: cs.emojiSwitch,
+        highlightSwitch: cs.highlightSwitch,
+        autoBrollSwitch: cs.autoBrollSwitch,
         projectName: title || `Project ${projectId}`,
         webhookUrl,
-      })
+      }
+
+      if (cs.keywords) vizardParams.keywords = cs.keywords
+      if (cs.templateId) vizardParams.templateId = cs.templateId
+
+      const project = await VizardAPIService.createProject(vizardParams as any)
 
       // Store Vizard project ID
       await updateProjectServer(projectId, {

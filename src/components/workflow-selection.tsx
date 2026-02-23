@@ -8,18 +8,32 @@ import {
   IconSparkles,
   IconClock,
   IconLock,
-  IconCheck
+  IconCheck,
+  IconChevronDown,
+  IconDeviceMobile,
+  IconSquare,
+  IconRectangle,
+  IconRectangleVertical,
+  IconSettings,
 } from "@tabler/icons-react"
 import { cn } from "@/lib/utils"
-import { motion } from "framer-motion"
+import { motion, AnimatePresence } from "framer-motion"
 import { Switch } from "@/components/ui/switch"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
+import { Slider } from "@/components/ui/slider"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import { ClipSettings, DEFAULT_CLIP_SETTINGS } from "@/lib/project-types"
+import { useState } from "react"
 
 export interface WorkflowOptions {
   transcription: boolean
   clips: boolean
   blog: boolean
   social: boolean
+  clipSettings?: ClipSettings
 }
 
 interface WorkflowSelectionProps {
@@ -29,12 +43,193 @@ interface WorkflowSelectionProps {
   variant?: 'default' | 'grid'
 }
 
+const ASPECT_RATIOS = [
+  { value: 1 as const, label: '9:16', name: 'Vertical', desc: 'TikTok, Reels, Shorts', icon: IconDeviceMobile },
+  { value: 2 as const, label: '1:1', name: 'Square', desc: 'Instagram, Facebook Feed', icon: IconSquare },
+  { value: 3 as const, label: '4:5', name: 'Portrait', desc: 'Instagram Optimized', icon: IconRectangleVertical },
+  { value: 4 as const, label: '16:9', name: 'Horizontal', desc: 'YouTube, LinkedIn, Twitter', icon: IconRectangle },
+]
+
+const CLIP_LENGTHS = [
+  { value: '0', label: 'Auto (AI decides)' },
+  { value: '1', label: 'Ultra Short (< 30s)' },
+  { value: '2', label: 'Short (30-60s)' },
+  { value: '3', label: 'Medium (60-90s)' },
+  { value: '4', label: 'Long (90s - 3min)' },
+]
+
+const STYLE_TOGGLES = [
+  { key: 'subtitleSwitch' as const, label: 'Subtitles', desc: 'Auto-generated captions on clips' },
+  { key: 'headlineSwitch' as const, label: 'AI Headline / Hook', desc: 'Attention-grabbing title overlay' },
+  { key: 'removeSilenceSwitch' as const, label: 'Remove Silence & Fillers', desc: 'Cut dead air and filler words' },
+  { key: 'emojiSwitch' as const, label: 'Auto Emoji', desc: 'Add contextual emojis to subtitles' },
+  { key: 'highlightSwitch' as const, label: 'Highlight Keywords', desc: 'Emphasize key words in subtitles' },
+  { key: 'autoBrollSwitch' as const, label: 'Auto B-Roll', desc: 'AI-inserted supplementary footage' },
+]
+
+function ClipStylePanel({
+  settings,
+  onChange,
+  disabled,
+}: {
+  settings: ClipSettings
+  onChange: (settings: ClipSettings) => void
+  disabled?: boolean
+}) {
+  const [advancedOpen, setAdvancedOpen] = useState(false)
+
+  const update = (patch: Partial<ClipSettings>) => onChange({ ...settings, ...patch })
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, height: 0 }}
+      animate={{ opacity: 1, height: 'auto' }}
+      exit={{ opacity: 0, height: 0 }}
+      transition={{ duration: 0.25 }}
+      className="overflow-hidden"
+    >
+      <div className="pt-4 pb-1 space-y-5 border-t border-dashed border-primary/20 mt-4">
+        {/* Aspect Ratio */}
+        <div className="space-y-2.5">
+          <Label className="text-sm font-medium">Aspect Ratio</Label>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {ASPECT_RATIOS.map((ar) => {
+              const Icon = ar.icon
+              const selected = settings.ratioOfClip === ar.value
+              return (
+                <button
+                  key={ar.value}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => update({ ratioOfClip: ar.value })}
+                  className={cn(
+                    "flex flex-col items-center gap-1.5 rounded-lg border-2 p-3 transition-all text-center",
+                    selected
+                      ? "border-primary bg-primary/5 shadow-sm"
+                      : "border-muted hover:border-primary/40"
+                  )}
+                >
+                  <Icon className={cn("h-5 w-5", selected ? "text-primary" : "text-muted-foreground")} />
+                  <span className={cn("text-sm font-semibold", selected && "text-primary")}>{ar.label}</span>
+                  <span className="text-[10px] text-muted-foreground leading-tight">{ar.desc}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Clip Length */}
+        <div className="space-y-2">
+          <Label className="text-sm font-medium">Clip Length</Label>
+          <Select
+            value={String(settings.preferLength[0])}
+            onValueChange={(v) => update({ preferLength: [Number(v)] })}
+            disabled={disabled}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {CLIP_LENGTHS.map((cl) => (
+                <SelectItem key={cl.value} value={cl.value}>{cl.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Max Clips */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label className="text-sm font-medium">Max Clips</Label>
+            <span className="text-sm font-mono text-muted-foreground">{settings.maxClipNumber}</span>
+          </div>
+          <Slider
+            value={[settings.maxClipNumber]}
+            onValueChange={([v]) => update({ maxClipNumber: v })}
+            min={1}
+            max={50}
+            step={1}
+            disabled={disabled}
+          />
+          <div className="flex justify-between text-[10px] text-muted-foreground">
+            <span>1</span>
+            <span>50</span>
+          </div>
+        </div>
+
+        {/* Keywords */}
+        <div className="space-y-2">
+          <Label className="text-sm font-medium">Keywords / Topics</Label>
+          <Input
+            placeholder='e.g. "AI trends, product launch, key takeaways"'
+            value={settings.keywords}
+            onChange={(e) => update({ keywords: e.target.value })}
+            disabled={disabled}
+          />
+          <p className="text-[11px] text-muted-foreground">
+            Guide the AI to find clips about specific topics or moments
+          </p>
+        </div>
+
+        {/* Style Toggles */}
+        <div className="space-y-3">
+          <Label className="text-sm font-medium">Style Options</Label>
+          <div className="grid gap-2">
+            {STYLE_TOGGLES.map((toggle) => (
+              <div
+                key={toggle.key}
+                className="flex items-center justify-between rounded-lg border px-3 py-2.5"
+              >
+                <div className="space-y-0.5">
+                  <span className="text-sm font-medium">{toggle.label}</span>
+                  <p className="text-[11px] text-muted-foreground">{toggle.desc}</p>
+                </div>
+                <Switch
+                  checked={settings[toggle.key] === 1}
+                  onCheckedChange={(v) => update({ [toggle.key]: v ? 1 : 0 } as any)}
+                  disabled={disabled}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Advanced - Template ID */}
+        <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+          <CollapsibleTrigger className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+            <IconSettings className="h-4 w-4" />
+            Advanced
+            <IconChevronDown className={cn("h-3.5 w-3.5 transition-transform", advancedOpen && "rotate-180")} />
+          </CollapsibleTrigger>
+          <CollapsibleContent className="pt-3">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Template ID</Label>
+              <Input
+                type="number"
+                placeholder="Enter Vizard template ID"
+                value={settings.templateId ?? ''}
+                onChange={(e) => update({ templateId: e.target.value ? Number(e.target.value) : null })}
+                disabled={disabled}
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Apply a saved Vizard template style. Find template IDs in your Vizard editor under the Template tab.
+              </p>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      </div>
+    </motion.div>
+  )
+}
+
 export function WorkflowSelection({
   options,
   onChange,
   disabled = false,
   variant = 'default'
 }: WorkflowSelectionProps) {
+  const clipSettings = options.clipSettings ?? { ...DEFAULT_CLIP_SETTINGS }
+
   const workflows = [
     {
       id: 'transcription' as const,
@@ -55,7 +250,7 @@ export function WorkflowSelection({
       icon: IconScissors,
       color: 'from-purple-500 to-purple-600',
       estimatedTime: '10-20 minutes',
-      features: ['Viral detection', 'Auto-captions', 'Multiple formats', '5-10 clips'],
+      features: ['Viral detection', 'Auto-captions', 'Multiple formats', 'Up to 50 clips'],
       required: false,
       checked: options.clips,
       popular: true
@@ -65,11 +260,17 @@ export function WorkflowSelection({
   const handleToggle = (workflowId: string) => {
     const workflow = workflows.find(w => w.id === workflowId)
     if (workflow?.required) return
-    
+
+    const newClipsState = workflowId === 'clips' ? !options.clips : options.clips
     onChange({
       ...options,
-      [workflowId as keyof typeof options]: !options[workflowId as keyof typeof options]
+      [workflowId as keyof typeof options]: !options[workflowId as keyof typeof options],
+      clipSettings: newClipsState ? (options.clipSettings ?? { ...DEFAULT_CLIP_SETTINGS }) : undefined,
     })
+  }
+
+  const handleClipSettingsChange = (newSettings: ClipSettings) => {
+    onChange({ ...options, clipSettings: newSettings })
   }
 
   return (
@@ -183,6 +384,19 @@ export function WorkflowSelection({
                         ))}
                       </div>
                     </div>
+
+                    {/* Clip Style Panel - shown when clips are enabled */}
+                    {workflow.id === 'clips' && (
+                      <AnimatePresence>
+                        {isSelected && (
+                          <ClipStylePanel
+                            settings={clipSettings}
+                            onChange={handleClipSettingsChange}
+                            disabled={disabled}
+                          />
+                        )}
+                      </AnimatePresence>
+                    )}
                   </div>
                 </div>
               </motion.div>
@@ -209,4 +423,4 @@ export function WorkflowSelection({
       </CardContent>
     </Card>
   )
-} 
+}

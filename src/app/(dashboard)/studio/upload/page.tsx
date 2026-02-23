@@ -16,7 +16,7 @@ import { extractVideoMetadata, formatDuration, formatFileSize } from "@/lib/vide
 import { generateVideoThumbnail } from "@/lib/video-thumbnail-fix"
 import { UploadProgress } from "@/components/loading-states"
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
-import { VideoMetadata } from "@/lib/project-types"
+import { VideoMetadata, DEFAULT_CLIP_SETTINGS } from "@/lib/project-types"
 import { WorkflowSelection, WorkflowOptions } from "@/components/workflow-selection"
 import Image from "next/image"
 import { APP_CONFIG } from "@/lib/constants"
@@ -65,9 +65,10 @@ export default function UploadPage() {
   const [showWorkflowSelection, setShowWorkflowSelection] = useState(false)
   const [workflowOptions, setWorkflowOptions] = useState<WorkflowOptions>({
     transcription: true,
-    clips: true,  // Changed from false to true
+    clips: true,
     blog: false,
-    social: false
+    social: false,
+    clipSettings: { ...DEFAULT_CLIP_SETTINGS },
   })
   const [submittingWorkflow, setSubmittingWorkflow] = useState(false)
   const [submissionStatus, setSubmissionStatus] = useState("")
@@ -256,9 +257,10 @@ export default function UploadPage() {
     setShowWorkflowSelection(false)
     setWorkflowOptions({
       transcription: true,
-      clips: true,  // Changed from false to true
+      clips: true,
       blog: false,
-      social: false
+      social: false,
+      clipSettings: { ...DEFAULT_CLIP_SETTINGS },
     })
     // Reset persona selection to first ready persona
     const readyPersonas = personas.filter((p: PersonaOption & { status?: string }) => (p as PersonaOption & { status?: string }).status === 'ready')

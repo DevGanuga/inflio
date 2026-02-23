@@ -623,19 +623,62 @@ export function EnhancedTranscriptEditor({
             
             <TabsContent value="subtitles" className="h-full flex flex-col gap-4">
               <div className="flex-1 space-y-4 overflow-y-auto subtitle-settings-scroll">
-                <div className="grid gap-6">
-                  {/* Basic Settings */}
+
+                {/* Live Preview - at the top for immediate feedback */}
+                <div className="bg-black rounded-lg flex items-center justify-center aspect-video relative overflow-hidden">
+                  <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/50" />
+                  <div className="absolute inset-0 flex items-center justify-center opacity-20">
+                    <Video className="h-16 w-16 text-white/50" />
+                  </div>
+                  <div 
+                    className="relative"
+                    style={{
+                      maxWidth: `${subtitleSettings.maxWidth}%`,
+                      textAlign: subtitleSettings.alignment as any,
+                      position: 'absolute',
+                      bottom: subtitleSettings.position === 'bottom' ? '10%' : undefined,
+                      top: subtitleSettings.position === 'top' ? '10%' : undefined,
+                      left: '50%',
+                      transform: 'translateX(-50%)'
+                    }}
+                  >
+                    <p 
+                      style={{
+                        fontFamily: `${subtitleSettings.fontFamily}, sans-serif`,
+                        fontSize: `${subtitleSettings.fontSize}px`,
+                        color: subtitleSettings.fontColor,
+                        backgroundColor: subtitleSettings.backgroundColor + Math.round(subtitleSettings.backgroundOpacity * 2.55).toString(16).padStart(2, '0'),
+                        padding: `${subtitleSettings.padding}px ${subtitleSettings.padding * 2}px`,
+                        borderRadius: '4px',
+                        lineHeight: subtitleSettings.lineHeight,
+                        textShadow: subtitleSettings.strokeWidth > 0 
+                          ? `${subtitleSettings.strokeColor} 0px 0px ${subtitleSettings.strokeWidth}px` 
+                          : undefined,
+                        boxShadow: subtitleSettings.shadow 
+                          ? `${subtitleSettings.shadowColor} 0px 2px ${subtitleSettings.shadowBlur}px` 
+                          : undefined,
+                        display: 'inline-block',
+                        whiteSpace: 'pre-wrap'
+                      }}
+                    >
+                      {editingSegments[currentSegmentIndex]?.text || 'Sample subtitle text'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid gap-5">
+                  {/* Typography */}
                   <div>
-                    <h3 className="text-sm font-semibold mb-3">Basic Settings</h3>
-                    <div className="grid gap-4">
-                      <div className="grid grid-cols-2 gap-4">
+                    <h3 className="text-sm font-semibold mb-3">Typography</h3>
+                    <div className="grid gap-3">
+                      <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <Label>Font Family</Label>
+                          <Label className="text-xs">Font</Label>
                           <Select
                             value={subtitleSettings.fontFamily}
                             onValueChange={(value) => setSubtitleSettings({...subtitleSettings, fontFamily: value})}
                           >
-                            <SelectTrigger>
+                            <SelectTrigger className="h-8 text-xs">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -649,14 +692,26 @@ export function EnhancedTranscriptEditor({
                             </SelectContent>
                           </Select>
                         </div>
-                        
                         <div>
-                          <Label>Position</Label>
+                          <Label className="text-xs">Size: {subtitleSettings.fontSize}px</Label>
+                          <Slider
+                            value={[subtitleSettings.fontSize]}
+                            onValueChange={([value]) => setSubtitleSettings({...subtitleSettings, fontSize: value})}
+                            min={12}
+                            max={48}
+                            step={1}
+                            className="mt-2"
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <Label className="text-xs">Position</Label>
                           <Select
                             value={subtitleSettings.position}
                             onValueChange={(value: 'top' | 'center' | 'bottom') => setSubtitleSettings({...subtitleSettings, position: value})}
                           >
-                            <SelectTrigger>
+                            <SelectTrigger className="h-8 text-xs">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -666,16 +721,13 @@ export function EnhancedTranscriptEditor({
                             </SelectContent>
                           </Select>
                         </div>
-                      </div>
-                      
-                      <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <Label>Text Alignment</Label>
+                          <Label className="text-xs">Align</Label>
                           <Select
                             value={subtitleSettings.alignment}
                             onValueChange={(value: 'left' | 'center' | 'right') => setSubtitleSettings({...subtitleSettings, alignment: value})}
                           >
-                            <SelectTrigger>
+                            <SelectTrigger className="h-8 text-xs">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -685,60 +737,21 @@ export function EnhancedTranscriptEditor({
                             </SelectContent>
                           </Select>
                         </div>
-                        
                         <div>
-                          <Label>Animation</Label>
+                          <Label className="text-xs">Animation</Label>
                           <Select
                             value={subtitleSettings.animation}
                             onValueChange={(value: 'none' | 'fade' | 'slide') => setSubtitleSettings({...subtitleSettings, animation: value})}
                           >
-                            <SelectTrigger>
+                            <SelectTrigger className="h-8 text-xs">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="none">None</SelectItem>
-                              <SelectItem value="fade">Fade In/Out</SelectItem>
+                              <SelectItem value="fade">Fade</SelectItem>
                               <SelectItem value="slide">Slide Up</SelectItem>
                             </SelectContent>
                           </Select>
-                        </div>
-                      </div>
-                      
-                      <div>
-                        <Label>Font Size: {subtitleSettings.fontSize}px</Label>
-                        <Slider
-                          value={[subtitleSettings.fontSize]}
-                          onValueChange={([value]) => setSubtitleSettings({...subtitleSettings, fontSize: value})}
-                          min={12}
-                          max={48}
-                          step={1}
-                          className="mt-2"
-                        />
-                      </div>
-                      
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <Label>Line Height: {subtitleSettings.lineHeight}</Label>
-                          <Slider
-                            value={[subtitleSettings.lineHeight]}
-                            onValueChange={([value]) => setSubtitleSettings({...subtitleSettings, lineHeight: value})}
-                            min={1}
-                            max={3}
-                            step={0.1}
-                            className="mt-2"
-                          />
-                        </div>
-                        
-                        <div>
-                          <Label>Max Width: {subtitleSettings.maxWidth}%</Label>
-                          <Slider
-                            value={[subtitleSettings.maxWidth]}
-                            onValueChange={([value]) => setSubtitleSettings({...subtitleSettings, maxWidth: value})}
-                            min={50}
-                            max={100}
-                            step={5}
-                            className="mt-2"
-                          />
                         </div>
                       </div>
                     </div>
@@ -746,352 +759,160 @@ export function EnhancedTranscriptEditor({
                   
                   <Separator />
                   
-                  {/* Colors & Background */}
+                  {/* Colors */}
                   <div>
-                    <h3 className="text-sm font-semibold mb-3">Colors & Background</h3>
-                    <div className="grid gap-4">
-                      <div className="grid grid-cols-2 gap-4">
+                    <h3 className="text-sm font-semibold mb-3">Colors</h3>
+                    <div className="grid gap-3">
+                      <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <Label>Text Color</Label>
-                          <div className="flex gap-2 mt-1">
+                          <Label className="text-xs">Text</Label>
+                          <div className="flex gap-1.5 mt-1">
                             <Input
                               type="color"
                               value={subtitleSettings.fontColor}
                               onChange={(e) => setSubtitleSettings({...subtitleSettings, fontColor: e.target.value})}
-                              className="w-20 h-9"
+                              className="w-9 h-8 p-0.5 cursor-pointer"
                             />
                             <Input
                               value={subtitleSettings.fontColor}
                               onChange={(e) => setSubtitleSettings({...subtitleSettings, fontColor: e.target.value})}
-                              className="flex-1 font-mono text-sm"
-                              placeholder="#FFFFFF"
+                              className="flex-1 font-mono text-xs h-8"
                             />
                           </div>
                         </div>
-                        
                         <div>
-                          <Label>Background Color</Label>
-                          <div className="flex gap-2 mt-1">
+                          <Label className="text-xs">Background</Label>
+                          <div className="flex gap-1.5 mt-1">
                             <Input
                               type="color"
                               value={subtitleSettings.backgroundColor}
                               onChange={(e) => setSubtitleSettings({...subtitleSettings, backgroundColor: e.target.value})}
-                              className="w-20 h-9"
+                              className="w-9 h-8 p-0.5 cursor-pointer"
                             />
                             <Input
                               value={subtitleSettings.backgroundColor}
                               onChange={(e) => setSubtitleSettings({...subtitleSettings, backgroundColor: e.target.value})}
-                              className="flex-1 font-mono text-sm"
-                              placeholder="#000000"
+                              className="flex-1 font-mono text-xs h-8"
                             />
                           </div>
                         </div>
                       </div>
-                      
                       <div>
-                        <Label>Background Opacity: {subtitleSettings.backgroundOpacity}%</Label>
+                        <Label className="text-xs">BG Opacity: {subtitleSettings.backgroundOpacity}%</Label>
                         <Slider
                           value={[subtitleSettings.backgroundOpacity]}
                           onValueChange={([value]) => setSubtitleSettings({...subtitleSettings, backgroundOpacity: value})}
                           min={0}
                           max={100}
                           step={5}
-                          className="mt-2"
-                        />
-                      </div>
-                      
-                      <div>
-                        <Label>Padding: {subtitleSettings.padding}px</Label>
-                        <Slider
-                          value={[subtitleSettings.padding]}
-                          onValueChange={([value]) => setSubtitleSettings({...subtitleSettings, padding: value})}
-                          min={0}
-                          max={20}
-                          step={1}
-                          className="mt-2"
+                          className="mt-1.5"
                         />
                       </div>
                     </div>
                   </div>
-                  
+
                   <Separator />
-                  
-                  {/* Text Effects */}
+
+                  {/* Effects */}
                   <div>
-                    <h3 className="text-sm font-semibold mb-3">Text Effects</h3>
-                    <div className="grid gap-4">
+                    <h3 className="text-sm font-semibold mb-3">Effects</h3>
+                    <div className="grid gap-3">
                       <div className="flex items-center justify-between">
-                        <Label htmlFor="shadow">Drop Shadow</Label>
+                        <Label htmlFor="shadow" className="text-xs">Drop Shadow</Label>
                         <Switch
                           id="shadow"
                           checked={subtitleSettings.shadow}
                           onCheckedChange={(checked) => setSubtitleSettings({...subtitleSettings, shadow: checked})}
                         />
                       </div>
-                      
-                      {subtitleSettings.shadow && (
-                        <div className="grid grid-cols-2 gap-4 pl-4">
-                          <div>
-                            <Label>Shadow Color</Label>
-                            <div className="flex gap-2 mt-1">
-                              <Input
-                                type="color"
-                                value={subtitleSettings.shadowColor}
-                                onChange={(e) => setSubtitleSettings({...subtitleSettings, shadowColor: e.target.value})}
-                                className="w-20 h-9"
-                              />
-                              <Input
-                                value={subtitleSettings.shadowColor}
-                                onChange={(e) => setSubtitleSettings({...subtitleSettings, shadowColor: e.target.value})}
-                                className="flex-1 font-mono text-sm"
-                              />
-                            </div>
-                          </div>
-                          
-                          <div>
-                            <Label>Shadow Blur: {subtitleSettings.shadowBlur}px</Label>
-                            <Slider
-                              value={[subtitleSettings.shadowBlur]}
-                              onValueChange={([value]) => setSubtitleSettings({...subtitleSettings, shadowBlur: value})}
-                              min={0}
-                              max={10}
-                              step={1}
-                              className="mt-2"
-                            />
-                          </div>
-                        </div>
-                      )}
-                      
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <Label>Stroke Width: {subtitleSettings.strokeWidth}px</Label>
+                          <Label className="text-xs">Stroke: {subtitleSettings.strokeWidth}px</Label>
                           <Slider
                             value={[subtitleSettings.strokeWidth]}
                             onValueChange={([value]) => setSubtitleSettings({...subtitleSettings, strokeWidth: value})}
                             min={0}
                             max={5}
                             step={0.5}
-                            className="mt-2"
+                            className="mt-1.5"
                           />
                         </div>
-                        
-                        {subtitleSettings.strokeWidth > 0 && (
-                          <div>
-                            <Label>Stroke Color</Label>
-                            <div className="flex gap-2 mt-1">
-                              <Input
-                                type="color"
-                                value={subtitleSettings.strokeColor}
-                                onChange={(e) => setSubtitleSettings({...subtitleSettings, strokeColor: e.target.value})}
-                                className="w-20 h-9"
-                              />
-                              <Input
-                                value={subtitleSettings.strokeColor}
-                                onChange={(e) => setSubtitleSettings({...subtitleSettings, strokeColor: e.target.value})}
-                                className="flex-1 font-mono text-sm"
-                              />
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                      
-                      {subtitleSettings.animation !== 'none' && (
                         <div>
-                          <Label>Animation Duration: {subtitleSettings.animationDuration}ms</Label>
+                          <Label className="text-xs">Padding: {subtitleSettings.padding}px</Label>
                           <Slider
-                            value={[subtitleSettings.animationDuration]}
-                            onValueChange={([value]) => setSubtitleSettings({...subtitleSettings, animationDuration: value})}
-                            min={100}
-                            max={1000}
-                            step={50}
-                            className="mt-2"
+                            value={[subtitleSettings.padding]}
+                            onValueChange={([value]) => setSubtitleSettings({...subtitleSettings, padding: value})}
+                            min={0}
+                            max={20}
+                            step={1}
+                            className="mt-1.5"
                           />
                         </div>
-                      )}
-                    </div>
-                  </div>
-                  
-                  <Separator />
-
-                  {/* Live Preview */}
-                  <div>
-                    <div className="flex items-center justify-between mb-3">
-                      <Label>Live Preview</Label>
-                      <Switch
-                        checked={showPreview}
-                        onCheckedChange={setShowPreview}
-                      />
-                    </div>
-                    {showPreview && (
-                      <div className="space-y-3">
-                        <div className="bg-black rounded-lg p-8 flex items-center justify-center aspect-video relative overflow-hidden">
-                          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/50" />
-                          
-                          {/* Video placeholder */}
-                          <div className="absolute inset-0 flex items-center justify-center opacity-30">
-                            <Video className="h-24 w-24 text-white/50" />
-                          </div>
-                          
-                          {/* Subtitle preview */}
-                          <div 
-                            className="relative"
-                            style={{
-                              maxWidth: `${subtitleSettings.maxWidth}%`,
-                              textAlign: subtitleSettings.alignment as any,
-                              position: 'absolute',
-                              bottom: subtitleSettings.position === 'bottom' ? '10%' : undefined,
-                              top: subtitleSettings.position === 'top' ? '10%' : undefined,
-                              left: '50%',
-                              transform: 'translateX(-50%)'
-                            }}
-                          >
-                            <p 
-                              style={{
-                                fontFamily: `${subtitleSettings.fontFamily}, sans-serif`,
-                                fontSize: `${subtitleSettings.fontSize}px`,
-                                color: subtitleSettings.fontColor,
-                                backgroundColor: subtitleSettings.backgroundColor + Math.round(subtitleSettings.backgroundOpacity * 2.55).toString(16).padStart(2, '0'),
-                                padding: `${subtitleSettings.padding}px ${subtitleSettings.padding * 2}px`,
-                                borderRadius: '4px',
-                                lineHeight: subtitleSettings.lineHeight,
-                                textShadow: subtitleSettings.strokeWidth > 0 
-                                  ? `${subtitleSettings.strokeColor} 0px 0px ${subtitleSettings.strokeWidth}px` 
-                                  : undefined,
-                                boxShadow: subtitleSettings.shadow 
-                                  ? `${subtitleSettings.shadowColor} 0px 2px ${subtitleSettings.shadowBlur}px` 
-                                  : undefined,
-                                display: 'inline-block',
-                                whiteSpace: 'pre-wrap'
-                              }}
-                            >
-                              {editingSegments[currentSegmentIndex]?.text || 'This is how your subtitles will appear on the video'}
-                            </p>
-                          </div>
-                        </div>
-                        
-                        <Alert className="border-primary/20 bg-primary/5">
-                          <AlertCircle className="h-4 w-4 text-primary" />
-                          <AlertDescription className="text-sm">
-                            <strong>Subtitle Preview:</strong> This shows how the currently selected segment will appear when burned into your video. 
-                            Adjust the styling options above to customize the appearance.
-                          </AlertDescription>
-                        </Alert>
                       </div>
-                    )}
+                    </div>
                   </div>
                 </div>
               </div>
               
-              {/* Apply Subtitles Section - Now inside the Subtitles tab */}
-              <div className="space-y-3 pt-4 border-t">
+              {/* Action Section - clean and consolidated */}
+              <div className="space-y-3 pt-3 border-t">
+                {/* Processing indicator */}
                 {isApplying && (
-                  <div className="space-y-3 p-4 bg-muted/30 rounded-lg">
+                  <div className="space-y-2 p-3 bg-muted/30 rounded-lg">
                     <div className="flex items-center justify-between text-sm">
                       <div className="flex items-center gap-2">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        <span className="font-medium">{processingStage || 'Processing...'}</span>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <span className="text-xs font-medium">{processingStage || 'Processing...'}</span>
                       </div>
-                      <span className="text-muted-foreground">{Math.round(progress)}%</span>
+                      <span className="text-xs text-muted-foreground">{Math.round(progress)}%</span>
                     </div>
-                    <Progress value={progress} className="h-2" />
-                    {progress > 0 && progress < 100 && (
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <Clock className="h-3 w-3" />
-                        <span>Processing subtitles...</span>
-                      </div>
-                    )}
+                    <Progress value={progress} className="h-1.5" />
                   </div>
                 )}
-                
-                <div className="flex items-center justify-between">
-                  <div className="text-sm text-muted-foreground">
-                    {!isApplying && !subtitlesApplied && (
-                      <p>Apply subtitles to prepare for long-form publishing</p>
-                    )}
-                    {subtitlesApplied && !isApplying && (
-                      <p className="text-green-600 font-medium">✓ Subtitles applied successfully</p>
-                    )}
+
+                {/* Success state */}
+                {subtitlesApplied && !isApplying && (
+                  <div className="flex items-center gap-2 p-2.5 rounded-lg bg-green-500/10 border border-green-500/20">
+                    <CheckCircle2 className="h-4 w-4 text-green-600 flex-shrink-0" />
+                    <span className="text-xs text-green-600 font-medium">
+                      Subtitles applied successfully
+                    </span>
                   </div>
-                  
-                  <Button
-                    onClick={handleApplySubtitles}
-                    disabled={isApplying || segments.length === 0}
-                    className="w-full"
-                    size="lg"
-                  >
-                    {isApplying ? (
-                      <>
-                        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                        {processingStage || 'Processing...'}
-                      </>
-                    ) : (
-                      <>
-                        <IconPlayerPlay className="mr-2 h-5 w-5" />
-                        {burnSubtitles ? 'Burn Subtitles into Video' : 'Apply Subtitles'}
-                      </>
-                    )}
-                  </Button>
+                )}
 
-                  {/* Progress bar */}
-                  {isApplying && (
-                    <div className="mt-4 space-y-2">
-                      <div className="w-full bg-secondary rounded-full h-2 overflow-hidden">
-                        <div 
-                          className="bg-primary h-full transition-all duration-500 ease-out"
-                          style={{ width: `${progress}%` }}
-                        />
-                      </div>
-                      {burnSubtitles && burningProgress > 0 && (
-                        <div className="text-xs text-muted-foreground text-center">
-                          {processingTaskId && (
-                            <>
-                              Burning progress: {Math.round(burningProgress)}%
-                              {burningProgress < 100 && (
-                                <span className="block mt-1">
-                                  Estimated time: {estimateProcessingTime()} minutes
-                                </span>
-                              )}
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                {/* Apply button */}
+                <Button
+                  onClick={handleApplySubtitles}
+                  disabled={isApplying || segments.length === 0}
+                  className="w-full"
+                  size="default"
+                >
+                  {isApplying ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      <Play className="mr-2 h-4 w-4" />
+                      Apply Subtitles
+                    </>
                   )}
+                </Button>
 
-                  {/* Status badge */}
-                  {subtitlesApplied && !isApplying && (
-                    <div className="mt-4">
-                      <Badge className="w-full justify-center py-2" variant="default">
-                        <CheckCircle2 className="mr-2 h-4 w-4" />
-                        {burnSubtitles ? 'Subtitles Burned Successfully' : 'Subtitles Applied'}
-                      </Badge>
-                      {burnSubtitles && (
-                        <p className="text-xs text-muted-foreground text-center mt-2">
-                          Your video now has permanent subtitles and is ready for YouTube upload
-                        </p>
-                      )}
-                    </div>
-                  )}
-                  </div>
-
-                    {/* Subtitle Options */}
-                    <div className="space-y-4 p-4 border-t">
-                      <h4 className="font-medium text-sm">Subtitle Options</h4>
-                      
-                      <div className="flex items-center space-x-2">
-                        <Switch
-                          id="burn-subtitles"
-                          checked={burnSubtitles}
-                          onCheckedChange={setBurnSubtitles}
-                        />
-                        <Label htmlFor="burn-subtitles" className="text-sm cursor-pointer">
-                          Burn subtitles into video
-                          <span className="block text-xs text-muted-foreground mt-1">
-                            Creates a new video file with permanent subtitles via Cloudinary (recommended for YouTube)
-                          </span>
-                        </Label>
-                      </div>
-                    </div>
+                {/* Burn option - clearly a secondary action */}
+                <div className="flex items-center gap-2.5 p-2.5 rounded-lg bg-muted/40 border">
+                  <Switch
+                    id="burn-subtitles"
+                    checked={burnSubtitles}
+                    onCheckedChange={setBurnSubtitles}
+                    className="flex-shrink-0"
+                  />
+                  <Label htmlFor="burn-subtitles" className="text-xs cursor-pointer leading-relaxed">
+                    <span className="font-medium">Burn into video</span>
+                    <span className="text-muted-foreground"> &mdash; permanently encode subtitles for YouTube</span>
+                  </Label>
+                </div>
               </div>
             </TabsContent>
             

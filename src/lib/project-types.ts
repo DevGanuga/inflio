@@ -231,6 +231,34 @@ export interface Project {
   content_brief?: Record<string, any>
 }
 
+export interface ClipSettings {
+  ratioOfClip: 1 | 2 | 3 | 4
+  preferLength: number[]
+  maxClipNumber: number
+  keywords: string
+  subtitleSwitch: 0 | 1
+  headlineSwitch: 0 | 1
+  removeSilenceSwitch: 0 | 1
+  emojiSwitch: 0 | 1
+  highlightSwitch: 0 | 1
+  autoBrollSwitch: 0 | 1
+  templateId: number | null
+}
+
+export const DEFAULT_CLIP_SETTINGS: ClipSettings = {
+  ratioOfClip: 1,
+  preferLength: [0],
+  maxClipNumber: 20,
+  keywords: '',
+  subtitleSwitch: 1,
+  headlineSwitch: 1,
+  removeSilenceSwitch: 0,
+  emojiSwitch: 0,
+  highlightSwitch: 0,
+  autoBrollSwitch: 0,
+  templateId: null,
+}
+
 export interface ProjectSettings {
   defaultClipDuration: number
   preferredPlatforms: string[]
@@ -239,4 +267,4 @@ export interface ProjectSettings {
   webhookUrl?: string
   exportFormat: 'mp4' | 'mov' | 'webm'
   quality: 'low' | 'medium' | 'high' | 'ultra'
-} 
+}

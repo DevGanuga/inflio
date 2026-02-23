@@ -16,6 +16,7 @@ import { ProcessingResults } from "@/components/processing-results"
 import { ExportManager } from "@/components/export-manager"
 import { ErrorBoundary } from "@/components/error-boundary"
 import { ThumbnailCreatorV2 } from "@/components/thumbnail-creator-v2"
+import { EnhancedVideoPlayer } from "@/components/video-player-enhanced"
 import { 
   IconPlayerPlay,
   IconPlayerPause,
@@ -499,77 +500,13 @@ export default function VideoEditorPage() {
           <div className="lg:col-span-2 space-y-4">
             {/* Video Player */}
             <Card className="overflow-hidden">
-              <div className="relative aspect-video bg-black">
-                {videoUrl ? (
-                  <video
-                    ref={videoRef}
-                    src={videoUrl}
-                    className="w-full h-full"
-                    onTimeUpdate={handleTimeUpdate}
-                    onLoadedMetadata={handleLoadedMetadata}
-                  />
-                ) : (
-                  <div className="flex items-center justify-center h-full">
-                    <IconVideo className="h-16 w-16 text-gray-600" />
-                  </div>
-                )}
-                
-                {/* Video Overlay Controls */}
-                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4">
-                  <div className="space-y-2">
-                    {/* Progress Bar */}
-                    <Slider
-                      value={[videoInfo.currentTime]}
-                      max={videoInfo.duration || 100}
-                      step={0.1}
-                      onValueChange={handleSeek}
-                      className="w-full"
-                    />
-                    
-                    {/* Controls */}
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8 text-white hover:bg-white/20"
-                          onClick={togglePlayPause}
-                        >
-                          {videoInfo.isPlaying ? (
-                            <IconPlayerPause className="h-4 w-4" />
-                          ) : (
-                            <IconPlayerPlay className="h-4 w-4" />
-                          )}
-                        </Button>
-                        
-                        <span className="text-white text-sm">
-                          {formatTime(videoInfo.currentTime)} / {formatTime(videoInfo.duration)}
-                        </span>
-                      </div>
-                      
-                      <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-2">
-                          <IconVolume className="h-4 w-4 text-white" />
-                          <Slider
-                            value={[videoInfo.volume]}
-                            max={1}
-                            step={0.1}
-                            onValueChange={handleVolumeChange}
-                            className="w-20"
-                          />
-                        </div>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8 text-white hover:bg-white/20"
-                        >
-                          <IconMaximize className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <EnhancedVideoPlayer
+                ref={videoRef}
+                videoUrl={videoUrl}
+                onTimeUpdate={(time) => setVideoInfo(prev => ({ ...prev, currentTime: time }))}
+                onLoadedMetadata={(duration) => setVideoInfo(prev => ({ ...prev, duration }))}
+                onPlayingStateChange={(playing) => setVideoInfo(prev => ({ ...prev, isPlaying: playing }))}
+              />
             </Card>
 
             {/* Processing/Results Tabs */}

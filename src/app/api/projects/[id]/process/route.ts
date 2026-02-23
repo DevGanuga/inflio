@@ -79,14 +79,15 @@ export async function POST(
       promises.push(
         (async () => {
           try {
-            // Send event to Inngest (using Vizard)
+            const clipSettings = (project.settings as any)?.clipSettings ?? null
             await inngest.send({
               name: 'vizard/video.process',
               data: {
                 projectId,
                 videoUrl: project.video_url,
                 userId,
-                title: project.title || project.name || `Project ${projectId}`
+                title: project.title || project.name || `Project ${projectId}`,
+                clipSettings,
               }
             });
 
