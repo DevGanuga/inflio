@@ -83,8 +83,6 @@ import { TranscriptionService } from "@/lib/transcription-service"
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { PublishingWorkflow } from "@/components/publishing-workflow"
-import { EnhancedPublishingWorkflow } from "@/components/enhanced-publishing-workflow"
-import { EnhancedPublishingWorkflowV2 } from "@/components/enhanced-publishing-workflow-v2"
 import { EnhancedPublishingWorkflowV3 } from "@/components/enhanced-publishing-workflow-v3"
 import { useProject } from "@/hooks/use-project"
 import { VideoErrorState } from "@/components/video-error-state"
@@ -125,6 +123,7 @@ import { ThreadGeneratorComponent } from "@/components/thread-generator"
 import { VideoChapters } from "@/components/video-chapters"
 import { QuoteCardsGenerator } from "@/components/quote-cards-generator"
 import { EnhancedVideoPlayer } from "@/components/video-player-enhanced"
+import { VideoPublishingPrep } from "@/components/video-publishing-prep"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Progress } from "@/components/ui/progress"
@@ -1697,6 +1696,7 @@ ${post.tags.map(tag => `- ${tag}`).join('\n')}
                 ref={videoRef}
                 videoUrl={project.video_url}
                 thumbnailUrl={project.thumbnail_url || thumbnailUrl}
+                chapters={project.chapters?.map((ch: any) => ({ timestamp: ch.timestamp, title: ch.title })) || []}
                 onLoadedMetadata={(duration) => {
                   if (!project.metadata?.duration || project.metadata.duration !== duration) {
                     setProject(prev => prev ? {
@@ -2163,6 +2163,34 @@ ${post.tags.map(tag => `- ${tag}`).join('\n')}
                                   projectId={project.id}
                                   videoDuration={project.metadata?.duration || 0}
                                   hasTranscript={!!project.transcription}
+                                  onSeek={(time) => {
+                                    if (videoRef.current) {
+                                      videoRef.current.currentTime = time
+                                      videoRef.current.play()
+                                      videoRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                                    }
+                                  }}
+                                />
+                              </div>
+
+                              {/* YouTube Publishing Prep */}
+                              <div className="mt-4">
+                                <VideoPublishingPrep
+                                  projectId={project.id}
+                                  projectTitle={project.title}
+                                  videoUrl={project.processed_video_url || project.video_url}
+                                  currentThumbnail={project.thumbnail_url || thumbnailUrl || undefined}
+                                  hasTranscription={!!project.transcription}
+                                  hasSubtitles={project.has_burned_subtitles || false}
+                                  selectedPersona={selectedPersona}
+                                  onReady={(data) => {
+                                    setProject(prev => prev ? {
+                                      ...prev,
+                                      processed_video_url: data.videoUrl,
+                                      thumbnail_url: data.thumbnailUrl,
+                                      has_burned_subtitles: data.hasSubtitles
+                                    } : null)
+                                  }}
                                 />
                               </div>
 

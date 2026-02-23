@@ -35,6 +35,7 @@ interface VideoPublishingPrepProps {
     thumbnailUrl: string
     hasSubtitles: boolean
   }) => void
+  onYouTubePublished?: (data: { videoId: string; videoUrl: string }) => void
 }
 
 export function VideoPublishingPrep({
@@ -45,10 +46,13 @@ export function VideoPublishingPrep({
   hasTranscription,
   hasSubtitles: initialHasSubtitles,
   selectedPersona,
-  onReady
+  onReady,
+  onYouTubePublished
 }: VideoPublishingPrepProps) {
   const [thumbnail, setThumbnail] = useState(currentThumbnail || '')
   const [isBurningSubtitles, setIsBurningSubtitles] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
+  const [youtubeUrl, setYoutubeUrl] = useState<string | null>(null)
   const [processedVideoUrl, setProcessedVideoUrl] = useState<string | null>(null)
   const [hasSubtitles, setHasSubtitles] = useState(initialHasSubtitles || false)
   const [burnSubtitles, setBurnSubtitles] = useState(true)
@@ -63,10 +67,9 @@ export function VideoPublishingPrep({
     setIsBurningSubtitles(true)
     setProgress(0)
 
-    // Simulate progress
     const progressInterval = setInterval(() => {
       setProgress(prev => Math.min(prev + 10, 90))
-    }, 500)
+    }, 800)
 
     try {
       const response = await fetch('/api/burn-subtitles', {
@@ -78,10 +81,9 @@ export function VideoPublishingPrep({
           style: {
             fontFamily: 'Arial',
             fontSize: '24',
-            fontColor: 'white',
-            backgroundColor: 'black@0.7',
+            fontColor: '#ffffff',
+            backgroundColor: '#000000',
             position: 'bottom',
-            outline: true
           }
         })
       })
@@ -90,16 +92,16 @@ export function VideoPublishingPrep({
       setProgress(100)
 
       if (!response.ok) {
-        throw new Error('Failed to burn subtitles')
+        const err = await response.json()
+        throw new Error(err.error || 'Failed to burn subtitles')
       }
 
       const data = await response.json()
       setProcessedVideoUrl(data.processedVideoUrl)
       setHasSubtitles(true)
-      
-      toast.success('Subtitles burned successfully!')
-      
-      // Notify parent
+
+      toast.success('Subtitles burned via Cloudinary!')
+
       if (onReady) {
         onReady({
           videoUrl: data.processedVideoUrl,
@@ -109,7 +111,7 @@ export function VideoPublishingPrep({
       }
     } catch (error) {
       console.error('Error burning subtitles:', error)
-      toast.error('Failed to burn subtitles')
+      toast.error(error instanceof Error ? error.message : 'Failed to burn subtitles')
     } finally {
       clearInterval(progressInterval)
       setIsBurningSubtitles(false)
@@ -313,10 +315,62 @@ export function VideoPublishingPrep({
                 />
               </div>
               
-              <Button className="w-full" size="lg">
-                <Upload className="h-4 w-4 mr-2" />
-                Publish to YouTube
-              </Button>
+              {youtubeUrl ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 p-3 rounded-lg bg-green-500/10">
+                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                    <span className="text-sm text-green-600 font-medium">Uploaded to YouTube!</span>
+                  </div>
+                  <a
+                    href={youtubeUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-blue-500 hover:underline block text-center"
+                  >
+                    {youtubeUrl}
+                  </a>
+                </div>
+              ) : (
+                <Button
+                  className="w-full"
+                  size="lg"
+                  disabled={isUploading}
+                  onClick={async () => {
+                    setIsUploading(true)
+                    try {
+                      const res = await fetch('/api/youtube/upload', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ projectId, privacy: 'unlisted' }),
+                      })
+                      const data = await res.json()
+                      if (res.ok && data.success) {
+                        setYoutubeUrl(data.videoUrl)
+                        toast.success('Video uploaded to YouTube!')
+                        onYouTubePublished?.({ videoId: data.videoId, videoUrl: data.videoUrl })
+                      } else {
+                        toast.error(data.error || 'Failed to upload to YouTube')
+                      }
+                    } catch {
+                      toast.error('Failed to upload to YouTube')
+                    } finally {
+                      setIsUploading(false)
+                    }
+                  }}
+                >
+                  {isUploading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Uploading to YouTube...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="h-4 w-4 mr-2" />
+                      Publish to YouTube (Unlisted)
+                    </>
+                  )}
+                </Button>
+              )}
             </div>
           )}
         </CardContent>

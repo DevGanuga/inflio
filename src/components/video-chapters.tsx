@@ -38,13 +38,15 @@ interface VideoChaptersProps {
   videoDuration: number
   hasTranscript: boolean
   className?: string
+  onSeek?: (timeInSeconds: number) => void
 }
 
 export function VideoChapters({
   projectId,
   videoDuration,
   hasTranscript,
-  className
+  className,
+  onSeek
 }: VideoChaptersProps) {
   const [chapters, setChapters] = useState<VideoChapter[]>([])
   const [isGenerating, setIsGenerating] = useState(false)
@@ -431,7 +433,11 @@ export function VideoChapters({
                       <CardContent className="p-4">
                         <div className="flex items-start gap-4">
                           <div className="flex-shrink-0">
-                            <Badge variant="outline" className="font-mono">
+                            <Badge
+                              variant="outline"
+                              className={cn("font-mono", onSeek && "cursor-pointer hover:bg-primary hover:text-primary-foreground transition-colors")}
+                              onClick={() => onSeek?.(chapter.timestamp)}
+                            >
                               {chapter.formattedTimestamp}
                             </Badge>
                           </div>
@@ -465,7 +471,10 @@ export function VideoChapters({
                               </>
                             ) : (
                               <>
-                                <h4 className="font-semibold flex items-center gap-2">
+                                <h4
+                                  className={cn("font-semibold flex items-center gap-2", onSeek && "cursor-pointer hover:text-primary transition-colors")}
+                                  onClick={() => onSeek?.(chapter.timestamp)}
+                                >
                                   {index === 0 && (
                                     <Badge className="text-xs">Start</Badge>
                                   )}
@@ -566,14 +575,43 @@ export function VideoChapters({
                 </Button>
               </div>
               
-              <Button
-                size="sm"
-                onClick={copyYouTubeDescription}
-                disabled={!validation.valid}
-              >
-                <IconBrandYoutube className="h-4 w-4 mr-1" />
-                Copy for YouTube
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={copyYouTubeDescription}
+                  disabled={!validation.valid}
+                >
+                  <IconCopy className="h-4 w-4 mr-1" />
+                  Copy for YouTube
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={async () => {
+                    const ytId = prompt('Enter your YouTube Video ID (e.g. dQw4w9WgXcQ):')
+                    if (!ytId) return
+                    try {
+                      const res = await fetch('/api/youtube/update-chapters', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ projectId, youtubeVideoId: ytId }),
+                      })
+                      if (res.ok) {
+                        toast.success('Chapters pushed to YouTube!')
+                      } else {
+                        const err = await res.json()
+                        toast.error(err.error || 'Failed to update YouTube video')
+                      }
+                    } catch {
+                      toast.error('Failed to connect to YouTube')
+                    }
+                  }}
+                  disabled={!validation.valid}
+                >
+                  <IconBrandYoutube className="h-4 w-4 mr-1" />
+                  Push to YouTube
+                </Button>
+              </div>
             </div>
           </div>
         )}

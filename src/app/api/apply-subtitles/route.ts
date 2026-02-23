@@ -1,31 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { CloudVideoService } from '@/lib/cloud-video-service'
-import { VideoProcessingService } from '@/lib/video-processing-service'
+import { supabaseAdmin } from '@/lib/supabase/admin'
 import { auth } from '@clerk/nextjs/server'
 
-interface SubtitleSettings {
-  fontSize: number
-  fontFamily: string
-  fontColor: string
-  backgroundColor: string
-  backgroundOpacity: number
-  position: 'bottom' | 'center' | 'top'
-  alignment: 'left' | 'center' | 'right'
-  maxWordsPerLine: number
-  strokeWidth?: number
-  strokeColor?: string
-  shadow?: boolean
-  shadowColor?: string
-  shadowBlur?: number
-}
-
-interface TranscriptionSegment {
-  id: string
-  text: string
-  start: number
-  end: number
-  confidence: number
-}
+export const maxDuration = 120
 
 export async function POST(request: NextRequest) {
   try {
@@ -35,7 +13,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { projectId, videoUrl, segments, settings, burnSubtitles = false } = body
+    const { projectId, videoUrl, segments, settings, logoUrl } = body
 
     if (!videoUrl || !segments || !Array.isArray(segments)) {
       return NextResponse.json(
@@ -44,40 +22,20 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // If burnSubtitles is true and FFmpeg is available, use VideoProcessingService
-    if (burnSubtitles) {
-      const ffmpegAvailable = await VideoProcessingService.checkFFmpegAvailable()
-      
-      if (ffmpegAvailable) {
-        console.log('Using FFmpeg for subtitle burning')
-        
-        // Start the subtitle burning process
-        const taskId = await VideoProcessingService.applySubtitlesToVideo(
-          projectId,
-          videoUrl,
-          segments,
-          settings
-        )
-        
-        return NextResponse.json({
-          taskId,
-          status: 'processing',
-          progress: 0,
-          provider: 'ffmpeg',
-          message: 'Subtitle burning in progress'
-        })
-      } else {
-        console.log('FFmpeg not available, trying cloud providers')
-      }
-    }
-
-    // Fall back to cloud providers or just generate VTT
     const videoService = new CloudVideoService()
-    const provider = CloudVideoService.getActiveProvider()
-    console.log(`Using video processing provider: ${provider}`)
-    
-    // Apply subtitles (this will just generate VTT if no cloud provider is configured)
-    const result = await videoService.applySubtitles(videoUrl, segments, projectId, settings)
+
+    const result = await videoService.applySubtitles(videoUrl, segments, projectId, settings, logoUrl)
+
+    if (result.status === 'completed' && result.videoUrl && projectId) {
+      await supabaseAdmin
+        .from('projects')
+        .update({
+          processed_video_url: result.videoUrl,
+          has_burned_subtitles: true,
+          processed_at: new Date().toISOString(),
+        })
+        .eq('id', projectId)
+    }
 
     return NextResponse.json(result)
   } catch (error) {
@@ -89,35 +47,19 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Check task status endpoint
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const taskId = searchParams.get('taskId')
-    
+
     if (!taskId) {
-      return NextResponse.json(
-        { error: 'Missing taskId parameter' },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: 'Missing taskId parameter' }, { status: 400 })
     }
 
-    // Check VideoProcessingService first
-    let task = VideoProcessingService.getTaskStatus(taskId)
-    
+    const task = CloudVideoService.getTaskStatus(taskId)
+
     if (!task) {
-      // Check CloudVideoService
-      const cloudTask = CloudVideoService.getTaskStatus(taskId)
-      if (cloudTask) {
-        task = cloudTask
-      }
-    }
-    
-    if (!task) {
-      return NextResponse.json(
-        { error: 'Task not found' },
-        { status: 404 }
-      )
+      return NextResponse.json({ error: 'Task not found' }, { status: 404 })
     }
 
     return NextResponse.json(task)
@@ -129,5 +71,3 @@ export async function GET(request: NextRequest) {
     )
   }
 }
-
- 

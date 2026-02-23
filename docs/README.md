@@ -1,128 +1,106 @@
-# Inflio Documentation
+# Inflio -- Developer Setup Guide
 
-Welcome to the Inflio documentation! This directory contains all technical documentation, implementation guides, product specifications, and troubleshooting resources.
+## Stack
 
-## 📁 Documentation Structure
+- **Next.js 16** (App Router) + TypeScript
+- **Supabase** -- PostgreSQL database + file storage
+- **Clerk** -- Authentication
+- **Inngest** -- Background job processing
+- **OpenAI** (GPT-5.2) -- Content generation, analysis, blog posts, social posts
+- **AssemblyAI** -- Video transcription
+- **FAL.ai** -- Image generation (Flux models, persona LoRA training)
+- **Cloudinary** -- Video processing (subtitle burning, logo overlay)
+- **Klap** -- Short clip generation from long-form video
 
-### 🏗️ Implementation Guides (`implementation/`)
-Complete implementation flows and technical specifications:
-- **AI_POSTS_CORRECT_FLOW.md** - Complete AI post generation workflow and user experience
-- **AI_POSTS_IMPROVEMENTS_COMPLETE.md** - Enhanced AI post generation features
-- **AI_ONBOARDING_IMPLEMENTATION.md** - User onboarding flow implementation
-- **INFLIOAI_REFINED_IMPLEMENTATION.md** - Core AI engine implementation details
-- **REFINED_ONBOARDING_SYNC.md** - Onboarding state synchronization
+## Commands
 
-### ✨ Features (`features/`)
-Feature-specific documentation:
-- **ADVANCED_AI_POSTS.md** - Advanced AI post generation capabilities
-- **ai-posts-generation-fix.md** - AI post generation improvements
-- **ai-posts-with-personas.md** - Persona-based content generation
-- **automatic-post-generation.md** - Automated post creation workflows
-- **automatic-post-generation-test-checklist.md** - Testing guidelines
+```bash
+npm run dev          # Start dev server (Turbopack)
+npm run build        # Production build
+npm run lint         # Lint
+npm start            # Production server
+```
 
-### 🐛 Bug Fixes & Improvements (`fixes/`)
-Documentation of resolved issues and improvements:
-- **BUILD_FIXES.md** - Build system fixes
-- **DASHBOARD_FLOW_FIXES.md** - Dashboard workflow improvements
-- **DASHBOARD_LAUNCHPAD_FIX.md** - Launchpad feature fixes
-- **HERO_ANIMATION_FIX.md** - Hero section animation fixes
-- **ONBOARDING_LAYOUT_FIX.md** - Onboarding UI/layout fixes
-- **ONBOARDING_PERSISTENCE_FIX.md** - Onboarding state persistence fixes
-- **THUMBNAIL_FIX_SUMMARY.md** - Thumbnail generation improvements
-- **VIDEO_UPLOAD_FIX.md** - Video upload reliability fixes
+## Environment Variables
 
-### 📋 Product Specifications (`product/`)
-Product requirements and specifications:
-- **PRODUCT_REQUIREMENTS_DOCUMENT.md** - Core product requirements
-- **PRODUCT_EXPERIENCE_AI_POSTS.md** - AI posts user experience design
-- **PRODUCT_EXPERIENCE_DEMO.md** - Demo experience specification
-- **ONBOARDING_SPEC.md** - Onboarding requirements
-- **PERSONA_IMPLEMENTATION_SPEC.md** - User persona system specs
+### Required (app won't start without these)
 
-### 🤖 AI Models & Services
-AI integration documentation:
-- **base-engine-model.md** - Base AI engine architecture
-- **image-editing-model.md** - Image editing AI model
-- **personatrainermodel.md** - Persona training model
-- **anthropic/** - Claude/Anthropic API documentation
-  - filesapi.md - File handling with Claude
-  - pdfsupport.md - PDF processing
-  - vision.md - Vision API usage
+| Variable | Service | Where to get it |
+|----------|---------|-----------------|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase | Project Settings > API |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase | Project Settings > API |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase | Project Settings > API |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Clerk | Dashboard > API Keys |
+| `CLERK_SECRET_KEY` | Clerk | Dashboard > API Keys |
+| `NEXT_PUBLIC_APP_URL` | Self | Your app URL (e.g. `http://localhost:3000`) |
 
-### 📊 Operations
-- **inflio-founder-accounts-and-keys-checklist.md** - Setup checklist for founders
-- **inflio-services-and-envs.md** - Services and environment configuration
-- **DEPLOYMENT_READY.md** - Deployment checklist
-- **PRODUCTION_READY_SUMMARY.md** - Production readiness status
-- **SIMPLIFICATION_SUMMARY.md** - Codebase simplification notes
-- **CLAUDE.md** - Claude AI integration notes
+### AI Services
 
-## 🚀 Quick Start Guides
+| Variable | Service | Purpose |
+|----------|---------|---------|
+| `OPENAI_API_KEY` | OpenAI | Content analysis, posts, blogs, chapters |
+| `ASSEMBLYAI_API_KEY` | AssemblyAI | Video transcription |
+| `FAL_KEY` | FAL.ai | Image generation, persona training |
+| `CLOUDINARY_URL` | Cloudinary | Subtitle burning, video processing |
+| `KLAP_API_KEY` | Klap | Short clip generation |
 
-### For Developers
-1. Start with the [main README](../README.md) for setup
-2. Review [implementation/AI_POSTS_CORRECT_FLOW.md](implementation/AI_POSTS_CORRECT_FLOW.md) to understand core workflows
-3. Check [features/](features/) for specific feature documentation
-4. Reference [fixes/](fixes/) for known issues and resolutions
+### Social OAuth (for publishing to platforms)
 
-### For Product Managers
-1. Review [product/PRODUCT_REQUIREMENTS_DOCUMENT.md](product/PRODUCT_REQUIREMENTS_DOCUMENT.md)
-2. Check [product/PRODUCT_EXPERIENCE_AI_POSTS.md](product/PRODUCT_EXPERIENCE_AI_POSTS.md) for user flows
-3. See [implementation/](implementation/) for technical feasibility
+| Variable | Platform |
+|----------|----------|
+| `TWITTER_CLIENT_ID` / `TWITTER_CLIENT_SECRET` | X/Twitter |
+| `LINKEDIN_CLIENT_ID` / `LINKEDIN_CLIENT_SECRET` | LinkedIn |
+| `FACEBOOK_APP_ID` / `FACEBOOK_APP_SECRET` | Facebook/Instagram |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | YouTube |
+| `TIKTOK_CLIENT_KEY` / `TIKTOK_CLIENT_SECRET` | TikTok |
 
-### For System Architects
-1. Review [base-engine-model.md](base-engine-model.md) for core architecture
-2. Check [inflio-services-and-envs.md](inflio-services-and-envs.md) for infrastructure
-3. Reference [anthropic/](anthropic/) for AI integration patterns
+### Infrastructure
 
-## 🔍 Finding Information
+| Variable | Purpose |
+|----------|---------|
+| `UPSTASH_REDIS_REST_URL` | Background job queue |
+| `UPSTASH_REDIS_REST_TOKEN` | Background job queue |
+| `INTERNAL_API_KEY` | Server-to-server auth for workers |
+| `WORKER_SECRET` | Cron/worker endpoint auth |
+| `SENTRY_DSN` | Error monitoring (optional) |
+| `STRIPE_SECRET_KEY` | Billing (test mode) |
+| `STRIPE_WEBHOOK_SECRET` | Stripe webhooks |
 
-### By Topic
-- **AI Post Generation**: `implementation/AI_POSTS_CORRECT_FLOW.md`, `features/automatic-post-generation.md`
-- **User Onboarding**: `implementation/AI_ONBOARDING_IMPLEMENTATION.md`, `product/ONBOARDING_SPEC.md`
-- **Personas**: `product/PERSONA_IMPLEMENTATION_SPEC.md`, `features/ai-posts-with-personas.md`
-- **Video Processing**: `fixes/VIDEO_UPLOAD_FIX.md`
-- **Deployment**: `DEPLOYMENT_READY.md`, `PRODUCTION_READY_SUMMARY.md`
+## Inngest (Background Jobs)
 
-### By Role
-- **Frontend Developer**: `fixes/`, `implementation/`
-- **Backend Developer**: `features/`, AI model docs
-- **DevOps**: `DEPLOYMENT_READY.md`, `inflio-services-and-envs.md`
-- **QA**: `features/automatic-post-generation-test-checklist.md`
+Persona portraits, post generation, clip processing, and thumbnail batches run via Inngest.
 
-## 📝 Documentation Standards
+**Local dev:** Inngest dev server runs automatically with `npm run dev`.
 
-When adding new documentation:
-1. Place in the appropriate subdirectory
-2. Use clear, descriptive filenames
-3. Include a brief description at the top
-4. Update this README with the new document
-5. Link related documents
+**Production (Vercel):**
+1. Install the [Inngest Vercel integration](https://app.inngest.com/settings/integrations/vercel/connect)
+2. Keys are auto-set on deploy
+3. Manual sync after deploy: `curl -X PUT https://your-domain.com/api/inngest`
 
-## 🤝 Contributing
+## Supabase Storage Buckets
 
-Found outdated docs? See something that needs clarification? 
-1. Update the relevant document
-2. Add your changes to this README if needed
-3. Submit a PR with clear description
+Run `migrations/fix-storage-rls-policies.sql` in the Supabase SQL editor to create:
+- `videos` -- Raw uploads and processed video
+- `ai-generated-images` -- Thumbnails and graphics
+- `thumbnails` -- Public thumbnails
+- `subtitles` -- Subtitle files
+- `persona-training` -- Persona training photos
+- `persona-lora` -- Trained LoRA model files
 
-## 📞 Need Help?
+## Database Migrations
 
-- **Technical Questions**: Check `fixes/` for solutions to known issues
-- **Architecture Questions**: Review model and service documentation
-- **Product Questions**: See `product/` specifications
+Apply migrations from `/migrations/` in order in the Supabase SQL editor.
 
----
+## Service Account Setup (for founders)
 
-Last updated: October 2025
-
-
-
-
-
-
-
-
-
-
-
+| Service | Sign up | What you need |
+|---------|---------|---------------|
+| OpenAI | platform.openai.com | API key |
+| AssemblyAI | assemblyai.com | API key |
+| Klap | klap.app | API key |
+| FAL.ai | fal.ai | API key |
+| Cloudinary | cloudinary.com | `CLOUDINARY_URL` from dashboard |
+| Stripe | dashboard.stripe.com | Test mode keys |
+| Supabase | supabase.com | Project URL + keys |
+| Clerk | clerk.com | Publishable + secret keys |
+| Upstash | console.upstash.com | Redis REST URL + token |

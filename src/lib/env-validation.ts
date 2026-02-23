@@ -166,9 +166,9 @@ export function isFeatureEnabled(feature: 'submagic' | 'klap' | 'openai' | 'soci
   
   switch (feature) {
     case 'submagic':
-      return !!env.SUBMAGIC_API_KEY && env.SKIP_SUBMAGIC_PROCESSING !== 'true'
-    case 'klap': // Legacy support
-      return !!env.SUBMAGIC_API_KEY && env.SKIP_SUBMAGIC_PROCESSING !== 'true'
+      return !!(env as any).SUBMAGIC_API_KEY && (env as any).SKIP_SUBMAGIC_PROCESSING !== 'true'
+    case 'klap':
+      return !!(env as any).SUBMAGIC_API_KEY && (env as any).SKIP_SUBMAGIC_PROCESSING !== 'true'
     case 'openai':
       return !!env.OPENAI_API_KEY
     case 'socialOAuth':

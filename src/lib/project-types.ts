@@ -224,6 +224,11 @@ export interface Project {
   vizard_project_id?: number // Vizard AI project ID for clip generation
   youtube_video_id?: string // YouTube video ID (for Magic Clips integration)
   youtube_video_url?: string // Full YouTube video URL
+  chapters?: Array<{ id: string; title: string; description: string; timestamp: number; formattedTimestamp: string; keywords: string[]; order: number }>
+  processed_video_url?: string
+  has_burned_subtitles?: boolean
+  youtube_url?: string
+  content_brief?: Record<string, any>
 }
 
 export interface ProjectSettings {

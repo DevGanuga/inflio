@@ -15,8 +15,7 @@ export const maxDuration = 120
 export async function POST(req: NextRequest) {
   // Verify this is an internal call (server-to-server only)
   const internalKey = req.headers.get('X-Internal-Key')
-  const isLocal = req.headers.get('host')?.includes('localhost')
-  if (!isLocal && internalKey !== process.env.INTERNAL_API_KEY) {
+  if (!internalKey || !process.env.INTERNAL_API_KEY || internalKey !== process.env.INTERNAL_API_KEY) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -87,10 +86,15 @@ export async function POST(req: NextRequest) {
       console.warn('[posts-worker] No transcript available for job:', jobId)
     }
 
-    // ── Fetch brand + persona ────────────────────────────────────────────────
-    const personaId = settings.selectedPersonaId || settings.personaId
+    // ── Fetch brand + persona (auto-resolve default if none specified) ─────
+    let personaId = settings.selectedPersonaId || settings.personaId
+    const shouldUsePersona = settings.usePersona !== false
+    if (!personaId && shouldUsePersona && userId) {
+      const { fetchDefaultPersonaId } = await import('@/lib/ai-context')
+      personaId = await fetchDefaultPersonaId(userId)
+    }
     const { brand, persona } = userId
-      ? await fetchBrandAndPersonaContext(userId, settings.usePersona ? personaId : null)
+      ? await fetchBrandAndPersonaContext(userId, shouldUsePersona ? personaId : null)
       : { brand: undefined, persona: null }
 
     // ── Build input ──────────────────────────────────────────────────────────
@@ -215,6 +219,36 @@ export async function POST(req: NextRequest) {
       }
 
       console.log('[posts-worker] Saved', suggestions.length, 'suggestions')
+    }
+
+    // ── Generate hero images for each post ───────────────────────────────────
+    for (let i = 0; i < suggestions.length; i++) {
+      const suggestion = suggestions[i]
+      const heroImage = suggestion.images?.[0]
+      if (!heroImage?.prompt) continue
+
+      try {
+        const imageResult = await AdvancedPostsService.generatePostImage({
+          prompt: heroImage.prompt,
+          contentType: suggestion.content_type,
+          persona,
+          brandColors: brand?.colors?.primary || [],
+        })
+
+        if (imageResult?.url) {
+          const images = [...(suggestion.images as any[])]
+          images[0] = { ...images[0], url: imageResult.url, model: imageResult.model, generated_at: new Date().toISOString() }
+
+          await supabaseAdmin
+            .from('post_suggestions')
+            .update({ images: images as any, status: 'ready' })
+            .eq('id', suggestion.id)
+
+          console.log(`[posts-worker] Image generated for post ${i}`)
+        }
+      } catch (imgError) {
+        console.error(`[posts-worker] Image generation failed for post ${i}:`, imgError)
+      }
     }
 
     // ── Mark job completed ───────────────────────────────────────────────────

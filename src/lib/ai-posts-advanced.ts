@@ -36,6 +36,8 @@ export interface PersonaContext {
   brandVoice?: string
   hasPortraits: boolean
   portraitCount: number
+  loraModelUrl?: string
+  loraTriggerPhrase?: string
 }
 
 export interface ContentAnalysisContext {
@@ -194,10 +196,13 @@ export class AdvancedPostsService {
     let personaBlock = ''
     if (persona) {
       personaBlock = [
-        `Persona: ${persona.name}`,
-        persona.description ? `Description: ${persona.description}` : '',
-        persona.brandVoice ? `Persona brand voice: ${persona.brandVoice}` : '',
-        persona.hasPortraits ? `Has ${persona.portraitCount} AI portraits available for image generation` : 'No portraits available yet'
+        `Creator: ${persona.name}`,
+        persona.description ? `Bio: ${persona.description}` : '',
+        persona.brandVoice ? `Voice & style: ${persona.brandVoice}` : '',
+        persona.hasPortraits ? `Has ${persona.portraitCount} AI-generated portraits for visual content` : '',
+        persona.loraModelUrl
+          ? `Trained AI image model available — include "${persona.loraTriggerPhrase || persona.name}" in ALL image prompts to feature the creator`
+          : ''
       ].filter(Boolean).join('\n')
     }
 
@@ -208,28 +213,33 @@ export class AdvancedPostsService {
 
     // ── System instructions ────────────────────────────────────────────────
 
-    const instructions = `You are a world-class social media content strategist. Your job is to turn video content into scroll-stopping social media posts that are directly tied to the actual content.
+    const companyLabel = brand?.companyName || persona?.name || 'the creator'
 
-CRITICAL RULES:
-1. Every post MUST include a real quote or specific detail from the transcript. No generic filler.
+    const instructions = `You are the dedicated social media strategist for ${companyLabel}. Every post you write must sound authentically like this brand — never generic, never templated.
+
+${brandBlock ? `BRAND IDENTITY — match this voice in EVERY caption:\n${brandBlock}\n\nWrite as if you ARE this brand. If the voice is "witty and casual", be witty and casual. If it is "authoritative and professional", be exactly that. Never fall back to generic marketing language.` : 'No brand profile provided — write in an engaging, authentic, human voice.'}
+
+${personaBlock ? `\nCREATOR PERSONA:\n${personaBlock}\nWrite as if ${persona!.name} is speaking directly to their audience. Use first person where appropriate.\n` : ''}
+
+${contentBrief ? `CONTENT BRIEF — all posts MUST align with this narrative:\n- Core story: ${contentBrief.coreNarrative}\n- Theme: ${contentBrief.primaryTheme}\n- Key takeaways: ${contentBrief.keyTakeaways?.join('; ')}\n- Tone: ${contentBrief.toneGuidance}\n- CTA direction: ${contentBrief.cta}\n- Visual direction: ${contentBrief.visualDirection}\n` : ''}
+
+ABSOLUTE RULES:
+1. Every post MUST include a real quote or closely paraphrased line from the transcript. No filler.
 2. Every hook must reference something the speaker actually said or a specific insight from the video.
-3. Platform copy must be genuinely different per platform (not the same text resized).
-4. Image prompts must be detailed and specific (50+ words), referencing brand colors and visual style.
-5. Carousel slides must each have distinct content — not the same idea rephrased.
+3. Platform copy must be GENUINELY NATIVE to each platform — not the same text resized.
+4. Image prompts must be detailed (80+ words) with subject, composition, camera angle, lighting, color palette${brand?.colors?.primary?.length ? ` (brand colors: ${brand.colors.primary.join(', ')})` : ''}, mood, and visual style.${persona?.loraModelUrl ? ` Include "${persona.loraTriggerPhrase || persona.name}" in image prompts to feature the creator.` : ''}
+5. Carousel slides must each have distinct, substantive content — not the same idea rephrased.
 6. Engagement rationale must reference the specific content, not generic "this type works well."
+${tone ? `7. Content tone: ${tone}` : ''}
+${contentGoal ? `${tone ? '8' : '7'}. Primary content goal: ${contentGoal} — optimize every post for this.` : ''}
 
-${brandBlock ? `\nBRAND IDENTITY:\n${brandBlock}` : ''}
-${personaBlock ? `\nPERSONA:\n${personaBlock}` : ''}
-${tone ? `\nTONE: ${tone}` : ''}
-${contentGoal ? `\nPRIMARY GOAL: ${contentGoal}` : ''}
-${contentBrief ? `
-CONTENT BRIEF (align all posts with this strategic narrative):
-- Core narrative: ${contentBrief.coreNarrative}
-- Theme: ${contentBrief.primaryTheme}
-- Key takeaways: ${contentBrief.keyTakeaways?.join('; ')}
-- Tone: ${contentBrief.toneGuidance}
-- CTA direction: ${contentBrief.cta}
-- Visual direction: ${contentBrief.visualDirection}` : ''}`
+PLATFORM-SPECIFIC COPY RULES:
+- Instagram: Max 2200 chars. Visual-first storytelling, emoji-friendly, place hashtags at the end (up to 30), use line breaks for readability.
+- Twitter/X: Max 280 chars per tweet. Punchy, conversational, weave 2-3 hashtags into text, use thread format for longer ideas.
+- LinkedIn: Max 3000 chars. Professional but human, storytelling with line breaks, 3-5 hashtags, open with a bold statement or hook question.
+- Facebook: Max 2200 chars. Community tone, question-based engagement, 5-10 hashtags.
+- YouTube: Title max 100 chars, description max 5000 chars. SEO-optimized with relevant tags.
+- TikTok: Max 2200 chars. Trend-aware hooks, 10-15 hashtags, short punchy sentences.`
 
     // ── User prompt ────────────────────────────────────────────────────────
 
@@ -281,12 +291,12 @@ Generate exactly 5 posts. For each post, return this JSON structure:
           "slideNumber": 1,
           "headline": "Slide headline",
           "body": "Slide body text",
-          "visualPrompt": "Detailed image generation prompt for this specific slide (50+ words)"
+          "visualPrompt": "Detailed image prompt for this slide (60+ words) with composition, colors${brand?.colors?.primary?.length ? ` (brand colors: ${brand.colors.primary.join(', ')})` : ''}, and text overlay content.${persona?.loraModelUrl ? ` Include '${persona.loraTriggerPhrase || persona.name}' if the creator should appear.` : ''}"
         }
       ],
-      "imagePrompt": "Detailed AI image generation prompt (50+ words). Include style, composition, lighting, mood, colors${brand?.colors?.primary?.length ? `, incorporating brand colors ${brand.colors.primary.join(' and ')}` : ''}${persona?.hasPortraits ? ', featuring the creator/persona from reference images' : ''}",
+      "imagePrompt": "Highly detailed AI image generation prompt (80+ words minimum). Must include: specific subject, composition, camera angle, lighting setup, color palette${brand?.colors?.primary?.length ? ` (use brand colors: ${brand.colors.primary.join(', ')})` : ''}, mood, visual style, and any text overlays.${persona?.loraModelUrl ? ` CRITICAL: Include the trigger phrase '${persona.loraTriggerPhrase || persona.name}' to feature the creator in the image.` : ''}${persona?.hasPortraits && !persona?.loraModelUrl ? ' Reference the creator/persona in the scene.' : ''} Do NOT include generic stock photo descriptions.",
       "imageStyle": "photorealistic|modern|minimalist|bold|artistic|editorial",
-      "imageDimensions": "1080x1350 for carousel/single, 1920x1080 for reel/story",
+      "imageDimensions": "1080x1350 for carousel/single, 1080x1920 for story/reel",
       "engagement": {
         "whyItWorks": "Specific reason tied to the actual content and audience psychology",
         "targetAudience": "Who specifically will engage with this and why",
@@ -340,6 +350,65 @@ IMPORTANT:
     console.log('[AdvancedPostsService] Generated', parsed.posts.length, 'posts')
 
     return parsed.posts
+  }
+
+  /**
+   * Generate an actual image for a post using FAL Flux.
+   * Uses persona LoRA when available, otherwise Flux Pro 1.1.
+   */
+  static async generatePostImage(params: {
+    prompt: string
+    contentType: string
+    persona?: PersonaContext | null
+    brandColors?: string[]
+  }): Promise<{ url: string; model: string } | null> {
+    try {
+      const { FALService } = await import('@/lib/services/fal-ai-service')
+
+      if (!FALService.isConfigured()) {
+        console.warn('[AdvancedPostsService] FAL not configured — skipping image generation')
+        return null
+      }
+
+      const { prompt, contentType, persona, brandColors } = params
+
+      let enhancedPrompt = prompt
+      if (brandColors?.length) {
+        enhancedPrompt += ` Brand color palette: ${brandColors.join(', ')}.`
+      }
+      enhancedPrompt += ' High quality, professional, social media optimized, sharp details.'
+
+      const aspectRatio = contentType === 'story' || contentType === 'reel'
+        ? 'portrait_16_9'
+        : 'portrait_4_5'
+
+      const useLoRA = !!persona?.loraModelUrl
+      const model = useLoRA ? 'flux-lora' : 'flux-pro-1.1'
+
+      const result = await FALService.generateImage({
+        prompt: enhancedPrompt,
+        model: model as any,
+        imageSize: aspectRatio,
+        numImages: 1,
+        outputFormat: 'jpeg',
+        enableSafetyChecker: true,
+        ...(useLoRA
+          ? {
+              loras: [{ path: persona!.loraModelUrl!, scale: 1.0 }],
+              numInferenceSteps: 30,
+              guidanceScale: 3.5,
+            }
+          : {}),
+      })
+
+      if (result.images?.[0]?.url) {
+        return { url: result.images[0].url, model }
+      }
+      return null
+    } catch (error) {
+      console.error('[AdvancedPostsService] Image generation failed:', error)
+      return null
+    }
   }
 
   /**

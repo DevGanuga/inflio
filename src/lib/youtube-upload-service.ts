@@ -86,10 +86,40 @@ export class YouTubeUploadService {
   }
 
   /**
+   * Refresh a user's YouTube access token using their refresh token from social_integrations.
+   */
+  static async refreshUserToken(refreshToken: string): Promise<string> {
+    const clientId = process.env.YOUTUBE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || ''
+    const clientSecret = process.env.YOUTUBE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || ''
+
+    if (!clientId || !clientSecret) {
+      throw new Error('YouTube OAuth client credentials not configured')
+    }
+
+    const response = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`Failed to refresh YouTube token: ${response.statusText}`)
+    }
+
+    const data = await response.json()
+    return data.access_token
+  }
+
+  /**
    * Upload video to YouTube
    */
-  static async uploadVideo(options: YouTubeUploadOptions): Promise<YouTubeUploadResult> {
-    const { videoUrl, title, description, privacy = 'unlisted' } = options
+  static async uploadVideo(options: YouTubeUploadOptions & { accessToken?: string }): Promise<YouTubeUploadResult> {
+    const { videoUrl, title, description, privacy = 'unlisted', accessToken: providedToken } = options
     
     logger.info('[YouTube] Starting video upload', {
       action: 'youtube_upload_start',
@@ -97,14 +127,15 @@ export class YouTubeUploadService {
     })
 
     try {
-      const { hasOAuth } = this.getConfig()
-      
-      if (!hasOAuth) {
-        throw new Error('YouTube OAuth is required for uploading videos. API key alone is not sufficient.')
-      }
+      let accessToken = providedToken
 
-      // Get access token
-      const accessToken = await this.getAccessToken()
+      if (!accessToken) {
+        const { hasOAuth } = this.getConfig()
+        if (!hasOAuth) {
+          throw new Error('YouTube OAuth is required for uploading videos. Connect your YouTube account or configure server credentials.')
+        }
+        accessToken = await this.getAccessToken()
+      }
 
       // Step 1: Download video from URL
       logger.debug('[YouTube] Downloading video from URL', {
@@ -251,6 +282,80 @@ export class YouTubeUploadService {
         }
       })
       return 'not_found'
+    }
+  }
+
+  /**
+   * Update a YouTube video's description with chapters.
+   * Uses the YouTube Data API v3 videos.update endpoint.
+   * The user must have connected their YouTube account via OAuth.
+   */
+  static async updateVideoDescription(
+    videoId: string,
+    description: string,
+    accessToken?: string
+  ): Promise<{ success: boolean; videoId: string }> {
+    try {
+      const token = accessToken || await this.getAccessToken()
+
+      // First, fetch the existing video snippet to preserve title/tags/categoryId
+      const fetchRes = await fetch(
+        `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}`,
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      )
+
+      if (!fetchRes.ok) {
+        throw new Error(`Failed to fetch video details: ${fetchRes.statusText}`)
+      }
+
+      const fetchData = await fetchRes.json()
+      if (!fetchData.items || fetchData.items.length === 0) {
+        throw new Error('Video not found on YouTube')
+      }
+
+      const existingSnippet = fetchData.items[0].snippet
+
+      // Update with new description while preserving other snippet fields
+      const updateRes = await fetch(
+        'https://www.googleapis.com/youtube/v3/videos?part=snippet',
+        {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            id: videoId,
+            snippet: {
+              title: existingSnippet.title,
+              description,
+              categoryId: existingSnippet.categoryId,
+              tags: existingSnippet.tags || [],
+            },
+          }),
+        }
+      )
+
+      if (!updateRes.ok) {
+        const errorText = await updateRes.text()
+        throw new Error(`Failed to update video: ${updateRes.statusText} - ${errorText}`)
+      }
+
+      logger.info('[YouTube] Video description updated with chapters', {
+        action: 'youtube_chapters_updated',
+        metadata: { videoId }
+      })
+
+      return { success: true, videoId }
+    } catch (error) {
+      logger.error('[YouTube] Failed to update video description', {
+        action: 'youtube_update_failed',
+        metadata: {
+          videoId,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        }
+      })
+      throw error
     }
   }
 

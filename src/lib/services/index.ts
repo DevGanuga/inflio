@@ -29,8 +29,6 @@ export type {
 // Persona services
 export { PersonaServiceV2 } from './persona-service-v2'
 export type { Persona, PersonaPhoto, PersonaPortrait } from './persona-service-v2'
-export { ImprovedPostsService } from './posts-service-improved'
-
 // Content Assistant (GPT-5.2 with high reasoning)
 export {
   ContentAssistantService,

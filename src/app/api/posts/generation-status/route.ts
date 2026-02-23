@@ -42,15 +42,15 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ status: 'idle', jobId: null })
     }
 
-    // If a job has been "running" for more than 3 minutes, it's stuck — mark it failed
+    // If a job has been "running" for more than 10 minutes, it's stuck — mark it failed
     if (job.status === 'running') {
       const runningFor = Date.now() - new Date(job.created_at).getTime()
-      if (runningFor > 3 * 60 * 1000) {
+      if (runningFor > 10 * 60 * 1000) {
         await supabaseAdmin
           .from('post_generation_jobs')
           .update({
             status: 'failed',
-            error_message: 'Job timed out after 3 minutes',
+            error_message: 'Job timed out after 10 minutes',
             updated_at: new Date().toISOString(),
           })
           .eq('id', job.id)
@@ -58,7 +58,7 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({
           status: 'failed',
           jobId: job.id,
-          error: 'Generation timed out. Please try again.',
+          error: 'Generation timed out after 10 minutes. Please try again.',
         })
       }
     }

@@ -695,9 +695,9 @@ export const generatePostsWorker = inngest.createFunction(
 
     console.log(`[Inngest:Posts] Processing job ${jobId}`)
 
-    // Step 1: Fetch job and project data
+    // Step 1: Fetch job and project data, brand context, and persona (auto-resolve if needed)
     const context = await step.run('fetch-context', async () => {
-      const { fetchBrandAndPersonaContext, extractTranscriptText } = await import('@/lib/ai-context')
+      const { fetchBrandAndPersonaContext, extractTranscriptText, fetchDefaultPersonaId } = await import('@/lib/ai-context')
 
       const { data: job } = await supabaseAdmin
         .from('post_generation_jobs')
@@ -734,9 +734,15 @@ export const generatePostsWorker = inngest.createFunction(
         contentBrief = project?.content_brief
       }
 
-      const personaId = params.settings?.selectedPersonaId || params.settings?.personaId
+      // Resolve persona: explicit ID > default persona > none
+      let personaId = params.settings?.selectedPersonaId || params.settings?.personaId
+      const shouldUsePersona = params.settings?.usePersona !== false
+      if (!personaId && shouldUsePersona && params.userId) {
+        personaId = await fetchDefaultPersonaId(params.userId)
+      }
+
       const { brand, persona } = params.userId
-        ? await fetchBrandAndPersonaContext(params.userId, params.settings?.usePersona ? personaId : null)
+        ? await fetchBrandAndPersonaContext(params.userId, shouldUsePersona ? personaId : null)
         : { brand: undefined, persona: null }
 
       return { skip: false, params, fullTranscript, contentBrief, brand, persona }
@@ -775,8 +781,8 @@ export const generatePostsWorker = inngest.createFunction(
       return await AdvancedPostsService.generateAdvancedPosts(input)
     })
 
-    // Step 3: Save suggestions
-    await step.run('save-suggestions', async () => {
+    // Step 3: Save suggestions to DB (without images initially)
+    const savedSuggestions = await step.run('save-suggestions', async () => {
       const { v4: uuidv4 } = await import('uuid')
       const { params, brand, persona } = context as any
 
@@ -791,14 +797,14 @@ export const generatePostsWorker = inngest.createFunction(
             }
           }
         }
-        const images: any[] = []
+        const imageMeta: any[] = []
         if (post.imagePrompt) {
-          images.push({ id: uuidv4(), type: 'hero', prompt: post.imagePrompt, text_overlay: '', dimensions: post.imageDimensions || '1080x1350', position: 0 })
+          imageMeta.push({ id: uuidv4(), type: 'hero', prompt: post.imagePrompt, text_overlay: '', dimensions: post.imageDimensions || '1080x1350', position: 0, url: null })
         }
         if (post.contentType === 'carousel' && post.carouselSlides?.length) {
           for (const slide of post.carouselSlides) {
             if (slide.visualPrompt) {
-              images.push({ id: uuidv4(), type: `slide_${slide.slideNumber}`, prompt: slide.visualPrompt, text_overlay: slide.headline || '', dimensions: '1080x1350', position: slide.slideNumber })
+              imageMeta.push({ id: uuidv4(), type: `slide_${slide.slideNumber}`, prompt: slide.visualPrompt, text_overlay: slide.headline || '', dimensions: '1080x1350', position: slide.slideNumber, url: null })
             }
           }
         }
@@ -806,11 +812,12 @@ export const generatePostsWorker = inngest.createFunction(
           id: suggestionId, project_id: params.projectId, user_id: params.userId,
           type: post.contentType, content_type: post.contentType, title: post.title,
           description: post.hook, platforms: Object.keys(copyVariants), copy_variants: copyVariants,
-          images, visual_style: { style: post.imageStyle || 'modern', colors: brand?.colors?.primary || [], description: post.imagePrompt },
+          images: imageMeta,
+          visual_style: { style: post.imageStyle || 'modern', colors: brand?.colors?.primary || [], description: post.imagePrompt },
           engagement_data: { predicted_reach: post.engagement?.estimatedReach || 'medium', target_audience: post.engagement?.targetAudience || '', best_time: post.engagement?.bestTimeToPost || '', why_it_works: post.engagement?.whyItWorks || '' },
           persona_id: persona?.id || null, persona_used: !!persona, generation_model: 'gpt-5.2',
           metadata: { hook: post.hook, transcript_quote: post.transcriptQuote, carousel_slides: post.carouselSlides || null, content_goal: params.settings?.contentGoal || null, tone: params.settings?.tone || null, job_id: jobId },
-          status: 'ready', created_at: new Date().toISOString(),
+          status: 'generating_images', created_at: new Date().toISOString(),
         }
       })
 
@@ -819,17 +826,80 @@ export const generatePostsWorker = inngest.createFunction(
         if (error) throw new Error(`Failed to save suggestions: ${error.message}`)
       }
 
+      console.log(`[Inngest:Posts] Saved ${suggestions.length} suggestions, starting image generation`)
+      return suggestions.map((s: any) => ({
+        id: s.id,
+        contentType: s.content_type,
+        heroPrompt: s.images?.[0]?.prompt || null,
+      }))
+    })
+
+    // Step 4: Generate hero images for each post (each is its own step for durability)
+    const { persona: ctxPersona, brand: ctxBrand } = context as any
+    for (let i = 0; i < savedSuggestions.length; i++) {
+      const suggestion = savedSuggestions[i]
+      if (!suggestion.heroPrompt) continue
+
+      try {
+        await step.run(`generate-image-${i}`, async () => {
+          const { AdvancedPostsService } = await import('@/lib/ai-posts-advanced')
+
+          const imageResult = await AdvancedPostsService.generatePostImage({
+            prompt: suggestion.heroPrompt,
+            contentType: suggestion.contentType,
+            persona: ctxPersona || null,
+            brandColors: ctxBrand?.colors?.primary || [],
+          })
+
+          if (imageResult?.url) {
+            const { data: existing } = await supabaseAdmin
+              .from('post_suggestions')
+              .select('images')
+              .eq('id', suggestion.id)
+              .single()
+
+            const images = existing?.images || []
+            if (images[0]) {
+              images[0].url = imageResult.url
+              images[0].model = imageResult.model
+              images[0].generated_at = new Date().toISOString()
+            }
+
+            await supabaseAdmin
+              .from('post_suggestions')
+              .update({ images })
+              .eq('id', suggestion.id)
+
+            console.log(`[Inngest:Posts] Image generated for suggestion ${i}: ${imageResult.model}`)
+          }
+        })
+      } catch (error) {
+        console.error(`[Inngest:Posts] Image generation failed for post ${i}:`, error)
+      }
+    }
+
+    // Step 5: Finalize — mark all suggestions ready and job completed
+    await step.run('finalize-job', async () => {
+      for (const suggestion of savedSuggestions) {
+        await supabaseAdmin
+          .from('post_suggestions')
+          .update({ status: 'ready' })
+          .eq('id', suggestion.id)
+      }
+
       await supabaseAdmin
         .from('post_generation_jobs')
         .update({
-          status: 'completed', completed_items: suggestions.length, total_items: suggestions.length,
-          output_data: { suggestion_ids: suggestions.map((s: any) => s.id) },
-          completed_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+          status: 'completed',
+          completed_items: savedSuggestions.length,
+          total_items: savedSuggestions.length,
+          output_data: { suggestion_ids: savedSuggestions.map((s: any) => s.id) },
+          completed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
         })
         .eq('id', jobId)
 
-      console.log(`[Inngest:Posts] Job ${jobId} completed with ${suggestions.length} suggestions`)
-      return { count: suggestions.length }
+      console.log(`[Inngest:Posts] Job ${jobId} fully completed with ${savedSuggestions.length} posts + images`)
     })
 
     return { success: true, jobId, count: posts.length }
