@@ -257,14 +257,15 @@ export function WorkflowSelection({
     }
   ]
 
-  const handleToggle = (workflowId: string) => {
+  const handleToggle = (workflowId: 'transcription' | 'clips' | 'blog' | 'social') => {
     const workflow = workflows.find(w => w.id === workflowId)
     if (workflow?.required) return
 
-    const newClipsState = workflowId === 'clips' ? !options.clips : options.clips
+    const toggled = !options[workflowId]
+    const newClipsState = workflowId === 'clips' ? toggled : options.clips
     onChange({
       ...options,
-      [workflowId as keyof typeof options]: !options[workflowId as keyof typeof options],
+      [workflowId]: toggled,
       clipSettings: newClipsState ? (options.clipSettings ?? { ...DEFAULT_CLIP_SETTINGS }) : undefined,
     })
   }
@@ -294,7 +295,7 @@ export function WorkflowSelection({
         )}>
           {workflows.map((workflow, index) => {
             const Icon = workflow.icon
-            const isSelected = workflow.required || options[workflow.id as keyof typeof options]
+            const isSelected = workflow.required || !!options[workflow.id as keyof Pick<WorkflowOptions, 'transcription' | 'clips' | 'blog' | 'social'>]
             
             return (
               <motion.div
