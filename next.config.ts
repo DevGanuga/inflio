@@ -3,10 +3,6 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
   
   // Build optimizations
   compress: true,
@@ -81,7 +77,7 @@ export default withSentryConfig(nextConfig, {
   // For all available options, see:
   // https://github.com/getsentry/sentry-webpack-plugin#options
 
-  org: "deepsimple",
+  org: process.env.SENTRY_ORG || "deepsimple",
   project: "inflio",
 
   // Only print logs for uploading source maps in CI
@@ -96,9 +92,13 @@ export default withSentryConfig(nextConfig, {
   // Route browser requests to Sentry through a Next.js rewrite to circumvent ad-blockers.
   tunnelRoute: "/monitoring",
 
-  reactComponentAnnotation: {
-    enabled: true,
+  webpack: {
+    reactComponentAnnotation: {
+      enabled: true,
+    },
+    treeshake: {
+      removeDebugLogging: true,
+    },
+    automaticVercelMonitors: true,
   },
-
-  automaticVercelMonitors: true,
 });
