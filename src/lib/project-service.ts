@@ -59,7 +59,8 @@ export class ProjectService {
         clipDuration: 60,
         blogStyle: 'professional',
         socialPlatforms: ['twitter', 'linkedin', 'youtube-short'],
-        language: 'en'
+        language: 'en',
+        ...(workflows.clipSettings ? { clipSettings: workflows.clipSettings } : {}),
       },
       analytics: {
         totalViews: 0,

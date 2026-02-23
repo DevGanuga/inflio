@@ -20,6 +20,7 @@ import {
   Play
 } from 'lucide-react'
 import { ThumbnailCreatorV2 } from './thumbnail-creator-v2'
+import { EnhancedVideoPlayer } from './video-player-enhanced'
 import { cn } from '@/lib/utils'
 
 interface VideoPublishingPrepProps {
@@ -306,14 +307,10 @@ export function VideoPublishingPrep({
           {isReadyToPublish && (
             <div className="space-y-3">
               <Label className="text-base font-medium">Preview</Label>
-              <div className="relative aspect-video rounded-lg overflow-hidden bg-black">
-                <video 
-                  src={processedVideoUrl || videoUrl}
-                  poster={thumbnail}
-                  controls
-                  className="w-full h-full"
-                />
-              </div>
+              <EnhancedVideoPlayer
+                videoUrl={processedVideoUrl || videoUrl}
+                thumbnailUrl={thumbnail}
+              />
               
               {youtubeUrl ? (
                 <div className="space-y-2">

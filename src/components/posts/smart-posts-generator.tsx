@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { 
   Sparkles, User, Users, Wand2,
@@ -444,6 +444,15 @@ export function SmartPostsGenerator({
   const [activeTab, setActiveTab] = useState('content')
   const [generationInProgress, setGenerationInProgress] = useState(false)
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(true)
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current)
+      }
+    }
+  }, [])
 
   const [settings, setSettings] = useState<ContentSettings>({
     contentTypes: ['carousel', 'quote', 'single'],
@@ -544,25 +553,34 @@ export function SmartPostsGenerator({
     }
   }
 
-  const pollForCompletion = () => {
-    const interval = setInterval(async () => {
+  const pollForCompletion = useCallback(() => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current)
+    }
+
+    const poll = async () => {
       const status = await checkGenerationStatus()
       if (status === 'completed') {
-        clearInterval(interval)
+        if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
+        pollIntervalRef.current = null
         setIsGenerating(false)
         setGenerationInProgress(false)
         await loadExistingSuggestions()
         toast.success('AI posts created successfully!')
       } else if (status === 'failed') {
-        clearInterval(interval)
+        if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
+        pollIntervalRef.current = null
         setIsGenerating(false)
         setGenerationInProgress(false)
         toast.error('Generation failed. Please try again.')
       } else if (status === 'running') {
         setGenerationStep('Generating posts & images with AI...')
       }
-    }, 4000)
-  }
+    }
+
+    poll()
+    pollIntervalRef.current = setInterval(poll, 4000)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Generation ────────────────────────────────────────────────────────
 

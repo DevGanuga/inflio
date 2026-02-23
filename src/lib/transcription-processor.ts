@@ -561,7 +561,7 @@ export async function processTranscription(params: {
           // Check for existing running job (prevent duplicates)
           const { data: existingJob } = await supabaseAdmin
             .from('post_generation_jobs')
-            .select('id, status')
+            .select('id, status, created_at')
             .eq('project_id', projectId)
             .in('status', ['pending', 'running'])
             .order('created_at', { ascending: false })
@@ -569,8 +569,19 @@ export async function processTranscription(params: {
             .single()
 
           if (existingJob) {
-            console.log('[TranscriptionProcessor] Post generation job already in progress:', existingJob.id)
-          } else {
+            const age = Date.now() - new Date(existingJob.created_at).getTime()
+            if (age > 5 * 60 * 1000) {
+              console.log('[TranscriptionProcessor] Cleaning up stale job:', existingJob.id)
+              await supabaseAdmin
+                .from('post_generation_jobs')
+                .update({ status: 'failed', error_message: 'Stale job auto-cleaned by transcription processor', updated_at: new Date().toISOString() })
+                .eq('id', existingJob.id)
+            } else {
+              console.log('[TranscriptionProcessor] Post generation job already in progress:', existingJob.id)
+            }
+          }
+
+          if (!existingJob || (existingJob && (Date.now() - new Date(existingJob.created_at).getTime()) > 5 * 60 * 1000)) {
             // Create job record directly
             const jobId = uuidv4()
             const settings = {

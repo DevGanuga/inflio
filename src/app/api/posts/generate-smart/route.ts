@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
     // ── Check for existing running job (prevent duplicates) ─────────────────
     const { data: existingJob } = await supabaseAdmin
       .from('post_generation_jobs')
-      .select('id, status')
+      .select('id, status, created_at')
       .eq('project_id', projectId)
       .in('status', ['pending', 'running'])
       .order('created_at', { ascending: false })
@@ -66,13 +66,28 @@ export async function POST(req: NextRequest) {
       .single()
 
     if (existingJob) {
-      console.log('[generate-smart] Job already in progress:', existingJob.id)
-      return NextResponse.json({
-        success: true,
-        jobId: existingJob.id,
-        status: existingJob.status,
-        message: 'Generation already in progress',
-      })
+      const age = Date.now() - new Date(existingJob.created_at).getTime()
+      const staleThreshold = existingJob.status === 'pending' ? 5 * 60 * 1000 : 10 * 60 * 1000
+
+      if (age > staleThreshold) {
+        console.log('[generate-smart] Cleaning up stale job:', existingJob.id, existingJob.status, `${Math.round(age / 1000)}s old`)
+        await supabaseAdmin
+          .from('post_generation_jobs')
+          .update({
+            status: 'failed',
+            error_message: `Stale ${existingJob.status} job auto-cleaned`,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existingJob.id)
+      } else {
+        console.log('[generate-smart] Job already in progress:', existingJob.id)
+        return NextResponse.json({
+          success: true,
+          jobId: existingJob.id,
+          status: existingJob.status,
+          message: 'Generation already in progress',
+        })
+      }
     }
 
     // ── Create job record ───────────────────────────────────────────────────

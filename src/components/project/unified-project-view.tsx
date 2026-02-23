@@ -18,6 +18,7 @@ import { UnifiedPortal } from '@/components/ui/unified-portal'
 import { designSystem } from '@/lib/design-system'
 import { EnhancedThumbnailGenerator } from '@/components/thumbnail/enhanced-thumbnail-generator'
 import { SmartPostsGenerator } from '@/components/posts/smart-posts-generator'
+import { EnhancedVideoPlayer } from '@/components/video-player-enhanced'
 import { EnhancedTranscriptEditor } from '@/components/enhanced-transcript-editor'
 import { EnhancedContentStager } from '@/components/staging/enhanced-content-stager'
 import { VideoChapters } from '@/components/video-chapters'
@@ -471,13 +472,10 @@ export function UnifiedProjectView({ project, user, onUpdate }: UnifiedProjectVi
             
             <TabsContent value="player" className="space-y-4">
               {project.video_url && (
-                <div className="aspect-video rounded-lg overflow-hidden bg-black">
-                  <video
-                    src={project.video_url}
-                    controls
-                    className="w-full h-full"
-                  />
-                </div>
+                <EnhancedVideoPlayer
+                  videoUrl={project.video_url}
+                  chapters={project.chapters?.map((ch: any) => ({ timestamp: ch.timestamp, title: ch.title })) || []}
+                />
               )}
             </TabsContent>
           </Tabs>

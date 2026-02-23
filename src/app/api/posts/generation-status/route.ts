@@ -42,15 +42,20 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ status: 'idle', jobId: null })
     }
 
-    // If a job has been "running" for more than 10 minutes, it's stuck — mark it failed
-    if (job.status === 'running') {
-      const runningFor = Date.now() - new Date(job.created_at).getTime()
-      if (runningFor > 10 * 60 * 1000) {
+    // If a job has been stuck for too long, mark it failed
+    if (job.status === 'running' || job.status === 'pending') {
+      const staleThreshold = job.status === 'pending' ? 5 * 60 * 1000 : 10 * 60 * 1000
+      const age = Date.now() - new Date(job.created_at).getTime()
+      if (age > staleThreshold) {
+        const reason = job.status === 'pending'
+          ? 'Job was never picked up (stuck in queue for over 5 minutes)'
+          : 'Job timed out after 10 minutes'
+
         await supabaseAdmin
           .from('post_generation_jobs')
           .update({
             status: 'failed',
-            error_message: 'Job timed out after 10 minutes',
+            error_message: reason,
             updated_at: new Date().toISOString(),
           })
           .eq('id', job.id)
@@ -58,7 +63,7 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({
           status: 'failed',
           jobId: job.id,
-          error: 'Generation timed out after 10 minutes. Please try again.',
+          error: `${reason}. Please try again.`,
         })
       }
     }
