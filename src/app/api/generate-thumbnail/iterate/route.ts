@@ -1,14 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from "@clerk/nextjs/server"
-import { fal } from "@fal-ai/client"
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getOpenAI } from '@/lib/openai'
 import { v4 as uuidv4 } from 'uuid'
-
-// Configure FAL AI client
-fal.config({
-  credentials: process.env.FAL_KEY!
-})
+import { OpenAIImageService } from '@/lib/services/openai-image-service'
 
 export const maxDuration = 60
 
@@ -134,124 +129,24 @@ export async function POST(req: NextRequest) {
 
     const improvedPrompt = promptResponse.choices[0].message.content || parentThumbnail.prompt
 
-    // Prepare iteration parameters
-    const iterationParams: any = {
-      prompt: improvedPrompt,
-      image_size: parentThumbnail.params?.image_size || 'landscape_16_9',
-      num_inference_steps: 28,
-      guidance_scale: 7.5,
-      num_images: 1,
-      enable_safety_checker: true,
-      output_format: 'png'
-    }
+    // Determine fidelity based on what the user wants to keep
+    const fidelity = keepComposition ? 'high' : keepStyle ? 'high' : 'low'
+    const storagePath = `thumbnails/${projectId}`
+    const modelUsed = 'gpt-image-1.5'
 
-    // If keeping style/composition, use img2img with parent as reference
-    if (keepStyle || keepComposition) {
-      iterationParams.image_url = parentThumbnail.output_url
-      iterationParams.strength = keepComposition ? 0.3 : 0.6 // Lower = more similar
-    }
+    // Use edit() with the parent image so GPT modifies the actual image
+    const genResult = (keepStyle || keepComposition)
+      ? await OpenAIImageService.edit(
+          [parentThumbnail.output_url],
+          improvedPrompt,
+          { size: '1536x1024', quality: 'high', inputFidelity: fidelity, storagePath }
+        )
+      : await OpenAIImageService.generate(
+          improvedPrompt,
+          { size: '1536x1024', quality: 'high', storagePath }
+        )
 
-    // Add persona LoRA if available
-    if (personaLoRA) {
-      iterationParams.loras = [{
-        path: personaLoRA,
-        scale: 0.85
-      }]
-    }
-
-    // Use same seed for consistency if keeping style
-    if (keepStyle && parentThumbnail.seed) {
-      iterationParams.seed = parentThumbnail.seed
-    }
-
-    console.log('Generating iteration with params:', {
-      hasParentImage: !!iterationParams.image_url,
-      hasLoRA: !!personaLoRA,
-      strength: iterationParams.strength
-    })
-
-    // Generate improved thumbnail
-    let result: any
-    let modelUsed = 'fal-ai/flux/dev'
-    
-    try {
-      // Try Flux first (best quality)
-      if (keepStyle || keepComposition) {
-        // Use img2img for iterations
-        result = await fal.subscribe(modelUsed, {
-          input: iterationParams,
-          logs: true
-        })
-      } else {
-        // Fresh generation
-        result = await fal.subscribe(modelUsed, {
-          input: iterationParams,
-          logs: true
-        })
-      }
-    } catch (falError: any) {
-      console.error('Flux iteration failed:', falError)
-      
-      // Fallback to OpenAI
-      if (process.env.OPENAI_API_KEY) {
-        try {
-          const openaiResponse = await openai.images.generate({
-            model: 'dall-e-3',
-            prompt: improvedPrompt,
-            n: 1,
-            size: '1792x1024',
-            quality: 'hd',
-            style: 'vivid'
-          })
-          
-          if (openaiResponse.data && openaiResponse.data[0]?.url) {
-            result = {
-              images: [{
-                url: openaiResponse.data[0].url,
-                content_type: 'image/png'
-              }]
-            }
-          } else {
-            throw new Error('No image URL in OpenAI response')
-          }
-          modelUsed = 'openai/dall-e-3'
-        } catch (openaiError) {
-          console.error('OpenAI fallback failed:', openaiError)
-          throw new Error('All image generation services failed')
-        }
-      } else {
-        throw falError
-      }
-    }
-
-    if (!result?.images?.[0]?.url) {
-      throw new Error('No image generated')
-    }
-
-    const generatedImageUrl = result.images[0].url
-
-    // Download and upload to Supabase storage
-    const imageResponse = await fetch(generatedImageUrl)
-    const imageBuffer = await imageResponse.arrayBuffer()
-    
-    const fileName = `thumbnails/${projectId}/iteration_${Date.now()}_${uuidv4()}.png`
-    
-    const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
-      .from('videos')
-      .upload(fileName, imageBuffer, {
-        contentType: 'image/png',
-        upsert: false
-      })
-    
-    if (uploadError) {
-      console.error('Storage upload error:', uploadError)
-      throw uploadError
-    }
-    
-    // Get public URL
-    const { data: { publicUrl } } = supabaseAdmin.storage
-      .from('videos')
-      .getPublicUrl(fileName)
+    const publicUrl = genResult.url
 
     // Store iteration in history
     const { data: newThumbnail, error: historyError } = await supabaseAdmin
@@ -263,16 +158,12 @@ export async function POST(req: NextRequest) {
         prompt: improvedPrompt,
         base_prompt: parentThumbnail.base_prompt,
         edit_prompt: feedback,
-        params: iterationParams,
+        params: { keepStyle, keepComposition, specificChanges, fidelity },
         model: modelUsed,
-        lora_ref: personaLoRA,
-        seed: result.seed || null,
         input_image_url: parentThumbnail.output_url,
         output_url: publicUrl,
-        file_size: imageBuffer.byteLength,
-        width: 1792,
+        width: 1536,
         height: 1024,
-        job_id: result.request_id || null,
         status: 'completed',
         parent_id: parentId,
         created_by: userId

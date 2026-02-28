@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from "@clerk/nextjs/server"
-import { fal } from "@fal-ai/client"
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
-
-// Configure FAL AI client
-fal.config({
-  credentials: process.env.FAL_KEY!
-})
+import { OpenAIImageService } from '@/lib/services/openai-image-service'
 
 export async function POST(req: NextRequest) {
   try {
@@ -57,62 +52,17 @@ export async function POST(req: NextRequest) {
           'bold composition, striking visuals'
         ]
         
-        const enhancedPrompt = `${basePrompt}, ${variations[index % variations.length]}, YouTube thumbnail 1920x1080, ultra HD quality`
-        
-        // Base input configuration
-        const input: any = {
-          prompt: enhancedPrompt,
-          image_size: {
-            width: 1920,
-            height: 1080
-          },
-          num_inference_steps: quality === 'high' ? 50 : 35,
-          guidance_scale: 8.0,
-          output_format: 'png',
-          enable_safety_checker: true,
-          scheduler: 'kdpm2',
-          seed: Math.floor(Math.random() * 1000000) + index,  // Different seed for each
-          upscale: 2
-        }
+        const enhancedPrompt = `${basePrompt}, ${variations[index % variations.length]}, YouTube thumbnail, ultra HD quality`
 
-        // Apply style-specific settings
-        const styleConfigs: Record<string, any> = {
-          'photorealistic': { 
-            loras: [{
-              path: "XLabs-AI/flux-RealismLora",
-              scale: 1.2
-            }],
-            guidance_scale: 8.5,
-            num_inference_steps: 60
-          },
-          'gradient': {
-            guidance_scale: 8.0,
-            num_inference_steps: 45
-          },
-          'corporate': {
-            guidance_scale: 7.0,
-            num_inference_steps: 45
-          }
-        }
-
-        if (styleConfigs[style]) {
-          Object.assign(input, styleConfigs[style])
-        }
-
-        // Generate thumbnail
-        const result = await fal.subscribe("fal-ai/flux-general", {
-          input,
-          logs: true
+        const result = await OpenAIImageService.generate(enhancedPrompt, {
+          size: '1536x1024',
+          quality: quality === 'high' ? 'high' : 'medium',
+          storagePath: `thumbnails/${projectId}/batch`,
         })
 
-        if (!result?.data?.images?.[0]?.url) {
-          throw new Error('No image generated')
-        }
-
         return {
-          imageUrl: result.data.images[0].url,
+          imageUrl: result.url,
           style,
-          seed: result.data.seed,
           prompt: enhancedPrompt,
           variation: index
         }

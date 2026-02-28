@@ -1,26 +1,20 @@
 /**
  * Enhanced Thumbnail Service
  *
- * Uses GPT-Image 1.5 (via FAL.AI) for high-fidelity thumbnail generation
- * with persona reference images for character consistency.
+ * Uses GPT-Image 1.5 via OpenAIImageService for high-fidelity thumbnail
+ * generation with persona reference images for character consistency.
  *
  * Key features:
  * - Multi-layered prompts from Content Assistant analysis
  * - Persona reference image integration for consistent character appearance
  * - Click psychology-driven composition
  * - Brand color and style alignment
- * - Iterative refinement support
+ * - Iterative refinement via the edit endpoint
  */
 
-import { fal } from '@fal-ai/client'
 import { v4 as uuidv4 } from 'uuid'
+import { OpenAIImageService, type ImageQuality } from '@/lib/services/openai-image-service'
 
-// Initialize FAL client
-fal.config({
-  credentials: process.env.FAL_KEY
-})
-
-// Lazy load supabaseAdmin to prevent client-side initialization
 const getSupabaseAdmin = async () => {
   const { supabaseAdmin } = await import('@/lib/supabase/admin')
   return supabaseAdmin
@@ -28,34 +22,29 @@ const getSupabaseAdmin = async () => {
 
 // Types
 export interface ThumbnailGenerationInput {
-  // From Content Assistant
-  prompt: string // The detailed, multi-layered prompt
+  prompt: string
   negativePrompt?: string
 
-  // Persona integration
   persona?: {
     id: string
     name: string
-    referenceImageUrls: string[] // URLs to reference images for consistency
+    referenceImageUrls: string[]
   }
 
-  // Brand settings
   brand?: {
     primaryColor?: string
     secondaryColor?: string
     accentColor?: string
   }
 
-  // Generation options
   options?: {
-    quality?: 'low' | 'medium' | 'high' // Default: high
-    aspectRatio?: '16:9' | '1:1' | '9:16' // Default: 16:9 for thumbnails
-    numVariations?: number // 1-4, default: 1
-    outputFormat?: 'png' | 'jpeg' | 'webp' // Default: png
-    inputFidelity?: 'low' | 'high' // How closely to follow reference images
+    quality?: 'low' | 'medium' | 'high'
+    aspectRatio?: '16:9' | '1:1' | '9:16'
+    numVariations?: number
+    outputFormat?: 'png' | 'jpeg' | 'webp'
+    inputFidelity?: 'low' | 'high'
   }
 
-  // Project context
   projectId: string
   userId: string
 }
@@ -63,7 +52,7 @@ export interface ThumbnailGenerationInput {
 export interface GeneratedThumbnail {
   id: string
   url: string
-  localUrl?: string // After upload to Supabase storage
+  localUrl?: string
   width: number
   height: number
   prompt: string
@@ -83,90 +72,72 @@ export interface ThumbnailGenerationResult {
   }
 }
 
+const MODEL_NAME = 'gpt-image-1.5'
+
 /**
- * Enhanced Thumbnail Service using GPT-Image 1.5
+ * Enhanced Thumbnail Service using OpenAI GPT-Image 1.5 directly.
  */
 export class EnhancedThumbnailService {
-  private model = 'fal-ai/gpt-image-1.5/edit'
 
-  /**
-   * Generate thumbnail(s) with persona reference images
-   */
   async generateThumbnail(input: ThumbnailGenerationInput): Promise<ThumbnailGenerationResult> {
     const startTime = Date.now()
     const options = input.options || {}
+    const enhancedPrompt = this.buildEnhancedPrompt(input)
+    const size = this.mapAspectRatioToSize(options.aspectRatio || '16:9')
+    const storagePath = `thumbnails/${input.projectId}`
 
     try {
-      // Build the enhanced prompt
-      const enhancedPrompt = this.buildEnhancedPrompt(input)
+      const hasPersona = !!input.persona?.referenceImageUrls?.length
 
-      // Prepare image URLs (persona references)
-      const imageUrls = input.persona?.referenceImageUrls || []
+      let result
 
-      if (imageUrls.length === 0) {
-        // If no persona references, use text-to-image generation instead
-        return this.generateWithoutPersona(input, startTime)
+      if (hasPersona) {
+        result = await OpenAIImageService.generateWithPersona(
+          enhancedPrompt,
+          input.persona!.referenceImageUrls,
+          { size, quality: (options.quality || 'high') as ImageQuality, storagePath }
+        )
+      } else {
+        result = await OpenAIImageService.generate(
+          enhancedPrompt,
+          { size, quality: (options.quality || 'high') as ImageQuality, storagePath }
+        )
       }
 
-      // Use GPT-Image 1.5 Edit endpoint with reference images
-      const result = await fal.subscribe(this.model, {
-        input: {
-          prompt: enhancedPrompt,
-          image_urls: imageUrls.slice(0, 4), // Max 4 reference images
-          image_size: this.mapAspectRatioToSize(options.aspectRatio || '16:9'),
-          quality: options.quality || 'high',
-          input_fidelity: options.inputFidelity || 'high',
-          num_images: options.numVariations || 1,
-          output_format: options.outputFormat || 'png',
-          background: 'opaque'
-        },
-        logs: true,
-        onQueueUpdate: (update) => {
-          if (update.status === 'IN_PROGRESS' && update.logs) {
-            update.logs.forEach(log => console.log('[GPT-Image 1.5]', log.message))
-          }
-        }
-      })
+      if (!result) throw new Error('Image generation returned no result')
 
-      // Process results
-      const thumbnails: GeneratedThumbnail[] = []
+      const thumbnailId = uuidv4()
+      const dimensions = this.getDimensions(options.aspectRatio || '16:9')
 
-      if (result.data?.images && Array.isArray(result.data.images)) {
-        for (const image of result.data.images) {
-          const thumbnailId = uuidv4()
-
-          // Upload to Supabase storage
-          const localUrl = await this.uploadToStorage(
-            image.url,
-            input.projectId,
-            thumbnailId,
-            options.outputFormat || 'png'
-          )
-
-          thumbnails.push({
-            id: thumbnailId,
-            url: image.url,
-            localUrl,
-            width: image.width || 1920,
-            height: image.height || 1080,
-            prompt: enhancedPrompt,
-            model: this.model,
-            generatedAt: new Date().toISOString()
-          })
-        }
+      const thumbnail: GeneratedThumbnail = {
+        id: thumbnailId,
+        url: result.url,
+        localUrl: result.url,
+        width: dimensions.width,
+        height: dimensions.height,
+        prompt: enhancedPrompt,
+        model: MODEL_NAME,
+        generatedAt: new Date().toISOString()
       }
 
-      // Save to thumbnail history
-      await this.saveThumbnailHistory(input, thumbnails)
+      await this.saveThumbnailHistory(input, [thumbnail])
+
+      // If numVariations > 1, generate more
+      const thumbnails: GeneratedThumbnail[] = [thumbnail]
+      const extraCount = (options.numVariations || 1) - 1
+      if (extraCount > 0) {
+        const variations = await this.generateVariations(input, extraCount)
+        thumbnails.push(...variations.thumbnails)
+      }
 
       return {
         success: true,
         thumbnails,
         metadata: {
-          model: this.model,
+          model: MODEL_NAME,
           quality: options.quality || 'high',
           processingTime: Date.now() - startTime,
-          personaUsed: true
+          personaUsed: hasPersona
         }
       }
     } catch (error) {
@@ -176,7 +147,7 @@ export class EnhancedThumbnailService {
         thumbnails: [],
         error: error instanceof Error ? error.message : 'Unknown error',
         metadata: {
-          model: this.model,
+          model: MODEL_NAME,
           quality: options.quality || 'high',
           processingTime: Date.now() - startTime,
           personaUsed: !!input.persona
@@ -185,95 +156,10 @@ export class EnhancedThumbnailService {
     }
   }
 
-  /**
-   * Generate thumbnail without persona (text-to-image)
-   */
-  private async generateWithoutPersona(
-    input: ThumbnailGenerationInput,
-    startTime: number
-  ): Promise<ThumbnailGenerationResult> {
-    const options = input.options || {}
-
-    try {
-      // Use Flux for text-to-image when no persona
-      const fluxModel = 'fal-ai/flux-pro/v1.1'
-
-      // Map output format (Flux only supports png/jpeg)
-      const fluxFormat = options.outputFormat === 'webp' ? 'png' : (options.outputFormat || 'png')
-
-      const result = await fal.subscribe(fluxModel, {
-        input: {
-          prompt: this.buildEnhancedPrompt(input),
-          image_size: this.mapAspectRatioToFluxSize(options.aspectRatio || '16:9') as 'square_hd' | 'square' | 'portrait_4_3' | 'portrait_16_9' | 'landscape_4_3' | 'landscape_16_9',
-          num_images: options.numVariations || 1,
-          output_format: fluxFormat as 'png' | 'jpeg',
-          safety_tolerance: '2'
-        },
-        logs: true
-      })
-
-      const thumbnails: GeneratedThumbnail[] = []
-
-      if (result.data?.images && Array.isArray(result.data.images)) {
-        for (const image of result.data.images) {
-          const thumbnailId = uuidv4()
-
-          const localUrl = await this.uploadToStorage(
-            image.url,
-            input.projectId,
-            thumbnailId,
-            options.outputFormat || 'png'
-          )
-
-          thumbnails.push({
-            id: thumbnailId,
-            url: image.url,
-            localUrl,
-            width: image.width || 1920,
-            height: image.height || 1080,
-            prompt: this.buildEnhancedPrompt(input),
-            model: fluxModel,
-            generatedAt: new Date().toISOString()
-          })
-        }
-      }
-
-      await this.saveThumbnailHistory(input, thumbnails)
-
-      return {
-        success: true,
-        thumbnails,
-        metadata: {
-          model: fluxModel,
-          quality: options.quality || 'high',
-          processingTime: Date.now() - startTime,
-          personaUsed: false
-        }
-      }
-    } catch (error) {
-      console.error('Flux thumbnail generation error:', error)
-      return {
-        success: false,
-        thumbnails: [],
-        error: error instanceof Error ? error.message : 'Unknown error',
-        metadata: {
-          model: 'fal-ai/flux-pro/v1.1',
-          quality: options.quality || 'high',
-          processingTime: Date.now() - startTime,
-          personaUsed: false
-        }
-      }
-    }
-  }
-
-  /**
-   * Generate multiple thumbnail variations from a single concept
-   */
   async generateVariations(
     input: ThumbnailGenerationInput,
     count: number = 3
   ): Promise<ThumbnailGenerationResult> {
-    // Generate multiple variations
     const variationPrompts = this.createVariationPrompts(input.prompt, count)
     const allThumbnails: GeneratedThumbnail[] = []
     let totalTime = 0
@@ -282,10 +168,7 @@ export class EnhancedThumbnailService {
       const result = await this.generateThumbnail({
         ...input,
         prompt: variationPrompt,
-        options: {
-          ...input.options,
-          numVariations: 1
-        }
+        options: { ...input.options, numVariations: 1 }
       })
 
       if (result.success) {
@@ -298,7 +181,7 @@ export class EnhancedThumbnailService {
       success: allThumbnails.length > 0,
       thumbnails: allThumbnails,
       metadata: {
-        model: this.model,
+        model: MODEL_NAME,
         quality: input.options?.quality || 'high',
         processingTime: totalTime,
         personaUsed: !!input.persona
@@ -306,9 +189,6 @@ export class EnhancedThumbnailService {
     }
   }
 
-  /**
-   * Edit/refine an existing thumbnail
-   */
   async refineThumbnail(
     existingThumbnailUrl: string,
     refinementPrompt: string,
@@ -317,58 +197,41 @@ export class EnhancedThumbnailService {
     const startTime = Date.now()
 
     try {
-      // Combine existing thumbnail with persona references if available
       const imageUrls = [existingThumbnailUrl]
       if (input.persona?.referenceImageUrls) {
         imageUrls.push(...input.persona.referenceImageUrls.slice(0, 2))
       }
 
-      const result = await fal.subscribe(this.model, {
-        input: {
-          prompt: refinementPrompt,
-          image_urls: imageUrls,
-          image_size: 'auto',
-          quality: input.options?.quality || 'high',
-          input_fidelity: 'high', // High fidelity to preserve original
-          num_images: 1,
-          output_format: input.options?.outputFormat || 'png'
-        },
-        logs: true
-      })
+      const storagePath = `thumbnails/${input.projectId || 'general'}`
 
-      const thumbnails: GeneratedThumbnail[] = []
-
-      if (result.data?.images && Array.isArray(result.data.images)) {
-        for (const image of result.data.images) {
-          const thumbnailId = uuidv4()
-
-          const localUrl = input.projectId
-            ? await this.uploadToStorage(
-                image.url,
-                input.projectId,
-                thumbnailId,
-                input.options?.outputFormat || 'png'
-              )
-            : undefined
-
-          thumbnails.push({
-            id: thumbnailId,
-            url: image.url,
-            localUrl,
-            width: image.width || 1920,
-            height: image.height || 1080,
-            prompt: refinementPrompt,
-            model: this.model,
-            generatedAt: new Date().toISOString()
-          })
+      const result = await OpenAIImageService.edit(
+        imageUrls,
+        refinementPrompt,
+        {
+          size: 'auto',
+          quality: (input.options?.quality || 'high') as ImageQuality,
+          inputFidelity: 'high',
+          storagePath
         }
+      )
+
+      const thumbnailId = uuidv4()
+      const thumbnail: GeneratedThumbnail = {
+        id: thumbnailId,
+        url: result.url,
+        localUrl: result.url,
+        width: 1920,
+        height: 1080,
+        prompt: refinementPrompt,
+        model: MODEL_NAME,
+        generatedAt: new Date().toISOString()
       }
 
       return {
         success: true,
-        thumbnails,
+        thumbnails: [thumbnail],
         metadata: {
-          model: this.model,
+          model: MODEL_NAME,
           quality: input.options?.quality || 'high',
           processingTime: Date.now() - startTime,
           personaUsed: !!input.persona
@@ -381,7 +244,7 @@ export class EnhancedThumbnailService {
         thumbnails: [],
         error: error instanceof Error ? error.message : 'Unknown error',
         metadata: {
-          model: this.model,
+          model: MODEL_NAME,
           quality: input.options?.quality || 'high',
           processingTime: Date.now() - startTime,
           personaUsed: !!input.persona
@@ -390,12 +253,11 @@ export class EnhancedThumbnailService {
     }
   }
 
-  // Helper methods
+  // ─── Helpers ───────────────────────────────────────────────────────────
 
   private buildEnhancedPrompt(input: ThumbnailGenerationInput): string {
     let prompt = input.prompt
 
-    // Add persona-specific instructions if using persona
     if (input.persona) {
       prompt = `Create a professional YouTube thumbnail featuring ${input.persona.name}.
 The person in the reference images should be the main subject, maintaining their exact appearance, facial features, and identity.
@@ -411,7 +273,6 @@ CRITICAL REQUIREMENTS FOR PERSONA:
 - Natural skin tones and textures`
     }
 
-    // Add brand color hints
     if (input.brand) {
       const colorHints = []
       if (input.brand.primaryColor) colorHints.push(`primary color: ${input.brand.primaryColor}`)
@@ -422,7 +283,6 @@ CRITICAL REQUIREMENTS FOR PERSONA:
       }
     }
 
-    // Add universal thumbnail requirements
     prompt += `
 
 THUMBNAIL TECHNICAL REQUIREMENTS:
@@ -438,83 +298,31 @@ THUMBNAIL TECHNICAL REQUIREMENTS:
 
   private createVariationPrompts(basePrompt: string, count: number): string[] {
     const variations = [
-      // Variation 1: Emotion emphasis
       `${basePrompt}\n\nEMPHASIS: Focus on emotional expression and connection with viewer. Make the emotion the primary visual element.`,
-
-      // Variation 2: Dynamic composition
       `${basePrompt}\n\nEMPHASIS: Use dynamic angles and dramatic composition. Create visual tension and energy.`,
-
-      // Variation 3: Color impact
       `${basePrompt}\n\nEMPHASIS: Bold, vibrant colors that pop. High saturation and contrast for maximum scroll-stopping impact.`,
-
-      // Variation 4: Minimalist clarity
       `${basePrompt}\n\nEMPHASIS: Clean, minimalist composition with strong negative space. Let the subject breathe.`,
-
-      // Variation 5: Story moment
       `${basePrompt}\n\nEMPHASIS: Capture a specific moment that tells a story. Create narrative intrigue.`
     ]
-
     return variations.slice(0, count)
   }
 
-  private mapAspectRatioToSize(aspectRatio: string): string {
-    const sizeMap: Record<string, string> = {
-      '16:9': '1536x1024', // Closest to 16:9 in GPT-Image 1.5 options
+  private mapAspectRatioToSize(aspectRatio: string): '1024x1024' | '1536x1024' | '1024x1536' {
+    const sizeMap: Record<string, '1024x1024' | '1536x1024' | '1024x1536'> = {
+      '16:9': '1536x1024',
       '1:1': '1024x1024',
       '9:16': '1024x1536'
     }
     return sizeMap[aspectRatio] || '1536x1024'
   }
 
-  private mapAspectRatioToFluxSize(aspectRatio: string): string {
-    const sizeMap: Record<string, string> = {
-      '16:9': 'landscape_16_9',
-      '1:1': 'square',
-      '9:16': 'portrait_16_9'
+  private getDimensions(aspectRatio: string): { width: number; height: number } {
+    const dims: Record<string, { width: number; height: number }> = {
+      '16:9': { width: 1920, height: 1080 },
+      '1:1': { width: 1080, height: 1080 },
+      '9:16': { width: 1080, height: 1920 }
     }
-    return sizeMap[aspectRatio] || 'landscape_16_9'
-  }
-
-  private async uploadToStorage(
-    imageUrl: string,
-    projectId: string,
-    thumbnailId: string,
-    format: string
-  ): Promise<string | undefined> {
-    try {
-      const supabase = await getSupabaseAdmin()
-
-      // Download image
-      const response = await fetch(imageUrl)
-      if (!response.ok) throw new Error('Failed to download image')
-
-      const blob = await response.blob()
-      const buffer = Buffer.from(await blob.arrayBuffer())
-
-      // Upload to Supabase
-      const fileName = `${projectId}/thumbnails/${thumbnailId}.${format}`
-      const { error } = await supabase.storage
-        .from('thumbnails')
-        .upload(fileName, buffer, {
-          contentType: `image/${format}`,
-          upsert: true
-        })
-
-      if (error) {
-        console.error('Storage upload error:', error)
-        return undefined
-      }
-
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('thumbnails')
-        .getPublicUrl(fileName)
-
-      return publicUrl
-    } catch (error) {
-      console.error('Failed to upload to storage:', error)
-      return undefined
-    }
+    return dims[aspectRatio] || { width: 1920, height: 1080 }
   }
 
   private async saveThumbnailHistory(
@@ -534,7 +342,6 @@ THUMBNAIL TECHNICAL REQUIREMENTS:
           model: thumbnail.model,
           status: 'completed',
           metadata: {
-            originalUrl: thumbnail.url,
             width: thumbnail.width,
             height: thumbnail.height,
             personaId: input.persona?.id,
@@ -546,15 +353,12 @@ THUMBNAIL TECHNICAL REQUIREMENTS:
       }
     } catch (error) {
       console.error('Failed to save thumbnail history:', error)
-      // Don't throw - this is not critical
     }
   }
 }
 
-// Factory function
 export function createEnhancedThumbnailService(): EnhancedThumbnailService {
   return new EnhancedThumbnailService()
 }
 
-// Default export
 export default EnhancedThumbnailService

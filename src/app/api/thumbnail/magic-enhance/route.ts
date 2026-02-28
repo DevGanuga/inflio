@@ -1,13 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
-import { fal } from '@fal-ai/client'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getOpenAI } from '@/lib/openai'
 import { v4 as uuidv4 } from 'uuid'
-
-fal.config({
-  credentials: process.env.FAL_KEY!
-})
+import { OpenAIImageService } from '@/lib/services/openai-image-service'
 
 export const maxDuration = 60
 
@@ -154,84 +150,35 @@ export async function POST(req: NextRequest) {
         }
       })
 
-    // Prepare enhanced generation parameters
-    const params: any = {
-      prompt: enhancedPrompt,
-      image_url: original.url, // Use original as base
-      strength: 0.4, // Keep similarity while improving
-      image_size: {
-        width: original.width,
-        height: original.height
-      },
-      num_inference_steps: 50, // High quality
-      guidance_scale: 8.5,
-      num_images: 1,
-      enable_safety_checker: true,
-      output_format: 'png',
-      seed: original.seed ? original.seed + 1000 : Math.floor(Math.random() * 1000000)
-    }
-
-    // Apply platform-specific parameters
-    Object.assign(params, platformEnhance.params)
-
-    // If original used persona, maintain it
-    if (original.persona_id && original.metadata?.generation_params?.loras) {
-      params.loras = original.metadata.generation_params.loras
-    }
-
-    // Generate enhanced version
+    // Use edit() to enhance the original — high fidelity preserves the image
+    // while applying the platform-specific improvements
     const startTime = Date.now()
-    let result: any
 
+    let editResult
     try {
-      result = await fal.subscribe('fal-ai/flux/pro', {
-        input: params,
-        logs: true,
-        onQueueUpdate: (update) => {
-          console.log('Enhancement progress:', update)
+      editResult = await OpenAIImageService.edit(
+        [original.url],
+        enhancedPrompt,
+        {
+          size: 'auto',
+          quality: 'high',
+          inputFidelity: 'high',
+          storagePath: `thumbnails/${projectId}`,
         }
-      })
-    } catch (falError: any) {
-      console.error('FAL enhancement error:', falError)
-      
-      // Update status to failed
+      )
+    } catch (editError: any) {
+      console.error('Enhancement error:', editError)
+
       await supabaseAdmin
         .from('thumbnail_generations')
-        .update({
-          status: 'failed',
-          error_message: 'Enhancement failed'
-        })
+        .update({ status: 'failed', error_message: 'Enhancement failed' })
         .eq('id', generationId)
-      
-      throw falError
+
+      throw editError
     }
 
     const processingTime = Date.now() - startTime
-
-    if (!result?.images?.[0]?.url) {
-      throw new Error('No enhanced image generated')
-    }
-
-    // Download and upload enhanced image
-    const imageResponse = await fetch(result.images[0].url)
-    const imageBuffer = await imageResponse.arrayBuffer()
-    
-    const fileName = `thumbnails/${projectId}/enhanced_${generationId}.png`
-    const { error: uploadError } = await supabaseAdmin.storage
-      .from('ai-generated-images')
-      .upload(fileName, Buffer.from(imageBuffer), {
-        contentType: 'image/png',
-        upsert: false
-      })
-
-    if (uploadError) {
-      throw uploadError
-    }
-
-    // Get public URL
-    const { data: { publicUrl } } = supabaseAdmin.storage
-      .from('ai-generated-images')
-      .getPublicUrl(fileName)
+    const publicUrl = editResult.url
 
     // Calculate improved performance score
     const newPerformanceScore = Math.min(
@@ -244,17 +191,15 @@ export async function POST(req: NextRequest) {
       .from('thumbnail_generations')
       .update({
         url: publicUrl,
-        storage_path: fileName,
         status: 'completed',
         processing_time_ms: processingTime,
-        file_size: imageBuffer.byteLength,
         performance_score: newPerformanceScore,
+        model: 'gpt-image-1.5',
         metadata: {
           ...original.metadata,
           enhancement_applied: true,
           improvements: analysisResult.improvements,
           performance_boost: newPerformanceScore - currentPerformance,
-          enhancement_params: params
         }
       })
       .eq('id', generationId)

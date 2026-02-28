@@ -132,14 +132,14 @@ export async function POST(req: NextRequest) {
       const suggestionId = uuidv4()
 
       const copyVariants: Record<string, any> = {}
-      if (post.platformCopy) {
+      if (post.platformCopy && typeof post.platformCopy === 'object') {
         for (const [platform, copy] of Object.entries(post.platformCopy)) {
           copyVariants[platform] = {
-            caption: copy.caption,
-            hashtags: copy.hashtags || [],
-            cta: copy.cta || '',
-            title: post.title,
-            description: post.hook,
+            caption: copy?.caption || post.hook || post.title || '',
+            hashtags: Array.isArray(copy?.hashtags) ? copy.hashtags : [],
+            cta: copy?.cta || '',
+            title: post.title || '',
+            description: post.hook || '',
           }
         }
       }
@@ -174,17 +174,17 @@ export async function POST(req: NextRequest) {
         id: suggestionId,
         project_id: projectId,
         user_id: userId,
-        type: post.contentType,
-        content_type: post.contentType,
-        title: post.title,
-        description: post.hook,
+        type: post.contentType || 'single',
+        content_type: post.contentType || 'single',
+        title: post.title || 'Untitled Post',
+        description: post.hook || '',
         platforms: Object.keys(copyVariants),
         copy_variants: copyVariants,
         images,
         visual_style: {
           style: post.imageStyle || 'modern',
           colors: brand?.colors?.primary || [],
-          description: post.imagePrompt,
+          description: post.imagePrompt || '',
         },
         engagement_data: {
           predicted_reach: post.engagement?.estimatedReach || 'medium',
@@ -196,8 +196,8 @@ export async function POST(req: NextRequest) {
         persona_used: !!persona,
         generation_model: 'gpt-5.2',
         metadata: {
-          hook: post.hook,
-          transcript_quote: post.transcriptQuote,
+          hook: post.hook || '',
+          transcript_quote: post.transcriptQuote || '',
           carousel_slides: post.carouselSlides || null,
           content_goal: settings.contentGoal || null,
           tone: settings.tone || null,
@@ -206,7 +206,7 @@ export async function POST(req: NextRequest) {
         status: 'ready',
         created_at: new Date().toISOString(),
       }
-    })
+    }).filter((s) => s.platforms.length > 0)
 
     if (suggestions.length > 0) {
       const { error: insertError } = await supabaseAdmin
@@ -233,6 +233,9 @@ export async function POST(req: NextRequest) {
           contentType: suggestion.content_type,
           persona,
           brandColors: brand?.colors?.primary || [],
+          postTitle: suggestion.title,
+          postHook: suggestion.description,
+          projectId,
         })
 
         if (imageResult?.url) {

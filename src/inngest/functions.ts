@@ -797,38 +797,88 @@ export const generatePostsWorker = inngest.createFunction(
 
       const suggestions = posts.map((post: any) => {
         const suggestionId = uuidv4()
+
+        // Build copy_variants from platformCopy (already validated by AdvancedPostsService)
         const copyVariants: Record<string, any> = {}
-        if (post.platformCopy) {
+        if (post.platformCopy && typeof post.platformCopy === 'object') {
           for (const [platform, copy] of Object.entries(post.platformCopy) as any) {
             copyVariants[platform] = {
-              caption: copy.caption, hashtags: copy.hashtags || [], cta: copy.cta || '',
-              title: post.title, description: post.hook,
+              caption: copy?.caption || post.hook || post.title || '',
+              hashtags: Array.isArray(copy?.hashtags) ? copy.hashtags : [],
+              cta: copy?.cta || '',
+              title: post.title || '',
+              description: post.hook || '',
             }
           }
         }
+
+        const platforms = Object.keys(copyVariants)
+
         const imageMeta: any[] = []
         if (post.imagePrompt) {
-          imageMeta.push({ id: uuidv4(), type: 'hero', prompt: post.imagePrompt, text_overlay: '', dimensions: post.imageDimensions || '1080x1350', position: 0, url: null })
+          imageMeta.push({
+            id: uuidv4(),
+            type: 'hero',
+            prompt: post.imagePrompt,
+            text_overlay: '',
+            dimensions: post.imageDimensions || '1080x1350',
+            position: 0,
+            url: null,
+          })
         }
         if (post.contentType === 'carousel' && post.carouselSlides?.length) {
           for (const slide of post.carouselSlides) {
             if (slide.visualPrompt) {
-              imageMeta.push({ id: uuidv4(), type: `slide_${slide.slideNumber}`, prompt: slide.visualPrompt, text_overlay: slide.headline || '', dimensions: '1080x1350', position: slide.slideNumber, url: null })
+              imageMeta.push({
+                id: uuidv4(),
+                type: `slide_${slide.slideNumber}`,
+                prompt: slide.visualPrompt,
+                text_overlay: slide.headline || '',
+                dimensions: '1080x1350',
+                position: slide.slideNumber,
+                url: null,
+              })
             }
           }
         }
+
         return {
-          id: suggestionId, project_id: params.projectId, user_id: params.userId,
-          type: post.contentType, content_type: post.contentType, title: post.title,
-          description: post.hook, platforms: Object.keys(copyVariants), copy_variants: copyVariants,
+          id: suggestionId,
+          project_id: params.projectId,
+          user_id: params.userId,
+          type: post.contentType || 'single',
+          content_type: post.contentType || 'single',
+          title: post.title || 'Untitled Post',
+          description: post.hook || '',
+          platforms,
+          copy_variants: copyVariants,
           images: imageMeta,
-          visual_style: { style: post.imageStyle || 'modern', colors: brand?.colors?.primary || [], description: post.imagePrompt },
-          engagement_data: { predicted_reach: post.engagement?.estimatedReach || 'medium', target_audience: post.engagement?.targetAudience || '', best_time: post.engagement?.bestTimeToPost || '', why_it_works: post.engagement?.whyItWorks || '' },
-          persona_id: persona?.id || null, persona_used: !!persona, generation_model: 'gpt-5.2',
-          metadata: { hook: post.hook, transcript_quote: post.transcriptQuote, carousel_slides: post.carouselSlides || null, content_goal: params.settings?.contentGoal || null, tone: params.settings?.tone || null, job_id: jobId },
-          status: 'generating_images', created_at: new Date().toISOString(),
+          visual_style: {
+            style: post.imageStyle || 'modern',
+            colors: brand?.colors?.primary || [],
+            description: post.imagePrompt || '',
+          },
+          engagement_data: {
+            predicted_reach: post.engagement?.estimatedReach || 'medium',
+            target_audience: post.engagement?.targetAudience || '',
+            best_time: post.engagement?.bestTimeToPost || '',
+            why_it_works: post.engagement?.whyItWorks || '',
+          },
+          persona_id: persona?.id || null,
+          persona_used: !!persona,
+          generation_model: 'gpt-5.2',
+          metadata: {
+            hook: post.hook || '',
+            transcript_quote: post.transcriptQuote || '',
+            carousel_slides: post.carouselSlides || null,
+            content_goal: params.settings?.contentGoal || null,
+            tone: params.settings?.tone || null,
+            job_id: jobId,
+          },
+          status: 'generating_images',
+          created_at: new Date().toISOString(),
         }
-      })
+      }).filter((s: any) => s.platforms.length > 0)
 
       if (suggestions.length > 0) {
         const { error } = await supabaseAdmin.from('post_suggestions').insert(suggestions)
@@ -839,12 +889,14 @@ export const generatePostsWorker = inngest.createFunction(
       return suggestions.map((s: any) => ({
         id: s.id,
         contentType: s.content_type,
+        title: s.title || '',
+        hook: s.description || '',
         heroPrompt: s.images?.[0]?.prompt || null,
       }))
     })
 
-    // Step 4: Generate hero images for each post (each is its own step for durability)
-    const { persona: ctxPersona, brand: ctxBrand } = context as any
+    // Step 4: Generate images for each post (each is its own step for durability)
+    const { persona: ctxPersona, brand: ctxBrand, params: ctxParams } = context as any
     for (let i = 0; i < savedSuggestions.length; i++) {
       const suggestion = savedSuggestions[i]
       if (!suggestion.heroPrompt) continue
@@ -858,6 +910,9 @@ export const generatePostsWorker = inngest.createFunction(
             contentType: suggestion.contentType,
             persona: ctxPersona || null,
             brandColors: ctxBrand?.colors?.primary || [],
+            postTitle: suggestion.title,
+            postHook: suggestion.hook,
+            projectId: ctxParams?.projectId,
           })
 
           if (imageResult?.url) {

@@ -14,7 +14,7 @@
  */
 
 import OpenAI from 'openai'
-import { fal } from '@fal-ai/client'
+import { OpenAIImageService, IMAGE_SIZES } from '@/lib/services/openai-image-service'
 import { v4 as uuidv4 } from 'uuid'
 import {
   DeepContentAnalysis,
@@ -32,11 +32,6 @@ const getOpenAI = () => {
   }
   return _openai
 }
-
-// FAL config is safe at module level (only uses credentials when called)
-fal.config({
-  credentials: process.env.FAL_KEY
-})
 
 // Lazy load supabaseAdmin
 const getSupabaseAdmin = async () => {
@@ -159,8 +154,6 @@ const PLATFORM_LIMITS: Record<string, { caption: number; hashtags: number }> = {
  */
 export class IntelligentSocialService {
   private model = 'gpt-5.2'
-  private imageModel = 'fal-ai/gpt-image-1.5/edit'
-  private fluxModel = 'fal-ai/flux-pro/v1.1'
 
   /**
    * Generate all social content from content plan
@@ -659,44 +652,28 @@ TECHNICAL:
     quality: string = 'high'
   ): Promise<string | undefined> {
     try {
-      if (persona?.referenceImageUrls && persona.referenceImageUrls.length > 0) {
-        // Use GPT-Image 1.5 Edit with persona references
-        const result = await fal.subscribe(this.imageModel, {
-          input: {
-            prompt,
-            image_urls: persona.referenceImageUrls.slice(0, 4),
-            image_size: this.mapAspectRatio(aspectRatio),
-            quality,
-            input_fidelity: 'high',
-            num_images: 1,
-            output_format: 'png'
-          },
-          logs: true
-        })
-
-        if (result.data?.images?.[0]?.url) {
-          return result.data.images[0].url
-        }
-      } else {
-        // Use Flux Pro v1.1 for text-to-image
-        // Note: Flux Pro v1.1 does NOT support num_inference_steps or guidance_scale
-        const result = await fal.subscribe(this.fluxModel, {
-          input: {
-            prompt,
-            image_size: this.mapAspectRatioFlux(aspectRatio) as 'square_hd' | 'square' | 'portrait_4_3' | 'portrait_16_9' | 'landscape_4_3' | 'landscape_16_9',
-            num_images: 1,
-            output_format: 'png' as 'png' | 'jpeg',
-            safety_tolerance: '2'
-          },
-          logs: true
-        })
-
-        if (result.data?.images?.[0]?.url) {
-          return result.data.images[0].url
-        }
+      const sizeMap: Record<string, any> = {
+        '1:1': '1024x1024',
+        '4:5': '1024x1536',
+        '16:9': '1536x1024',
+        '9:16': '1024x1536',
       }
+      const size = sizeMap[aspectRatio] || '1024x1024'
 
-      return undefined
+      if (persona?.referenceImageUrls && persona.referenceImageUrls.length > 0) {
+        const result = await OpenAIImageService.generateWithPersona(
+          prompt,
+          persona.referenceImageUrls,
+          { size, quality: quality as any, storagePath: 'social/intelligent' }
+        )
+        return result.url
+      } else {
+        const result = await OpenAIImageService.generate(
+          prompt,
+          { size, quality: quality as any, storagePath: 'social/intelligent' }
+        )
+        return result.url
+      }
     } catch (error) {
       console.error('Image generation error:', error)
       return undefined

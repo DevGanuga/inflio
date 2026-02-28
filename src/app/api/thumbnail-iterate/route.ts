@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from "@clerk/nextjs/server"
-import { getOpenAI } from '@/lib/openai'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { OpenAIImageService } from '@/lib/services/openai-image-service'
 
 export async function POST(req: NextRequest) {
   try {
-    // Check authentication
     const { userId } = await auth()
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -16,13 +15,14 @@ export async function POST(req: NextRequest) {
       projectId,
       currentImageUrl,
       iterationPrompt,
-      personalPhotos = [],
-      personaName,
       quality = 'high',
       inputFidelity = 'high'
     } = body
 
-    // Validate project ownership
+    if (!currentImageUrl || !iterationPrompt) {
+      return NextResponse.json({ error: 'currentImageUrl and iterationPrompt are required' }, { status: 400 })
+    }
+
     const { data: project } = await supabaseAdmin
       .from('projects')
       .select('*')
@@ -34,56 +34,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 })
     }
 
-    const openai = getOpenAI()
-    
-    // Build iteration prompt
-    let enhancedPrompt = `Based on the current thumbnail, ${iterationPrompt}`
-    if (personaName && personalPhotos.length > 0) {
-      enhancedPrompt += `. Maintain ${personaName}'s likeness and professional appearance.`
-    }
-
-    // Generate with high input fidelity to preserve the base image
-    const response = await openai.images.generate({
-      model: "gpt-image-1",
-      prompt: enhancedPrompt,
-      n: 1,
-      size: "1536x1024",
-      quality: quality as any,
-      background: "auto"
+    // Use edit() — passes the current thumbnail as input so GPT actually
+    // modifies the existing image instead of generating from scratch
+    const result = await OpenAIImageService.iterateThumbnail({
+      currentImageUrl,
+      feedback: iterationPrompt,
+      projectId,
+      fidelity: inputFidelity as 'high' | 'low',
     })
 
-    const imageUrl = response.data?.[0]?.url
-    if (!imageUrl) {
-      throw new Error('No image URL returned')
+    if (!result) {
+      throw new Error('Image iteration failed')
     }
 
-    // Download and save the new iteration
-    const imageResponse = await fetch(imageUrl)
-    const imageBlob = await imageResponse.blob()
-    
-    const fileName = `thumbnail-iteration-${crypto.randomUUID()}.png`
-    const filePath = `${projectId}/thumbnails/${fileName}`
-    
-    const { error: uploadError } = await supabaseAdmin.storage
-      .from('ai-generated-images')
-      .upload(filePath, imageBlob, {
-        contentType: 'image/png',
-        upsert: false
-      })
-
-    if (uploadError) {
-      throw uploadError
-    }
-
-    const { data: { publicUrl } } = supabaseAdmin.storage
-      .from('ai-generated-images')
-      .getPublicUrl(filePath)
-
-    // Update project with new thumbnail
     await supabaseAdmin
       .from('projects')
       .update({
-        thumbnail_url: publicUrl,
+        thumbnail_url: result.url,
         metadata: {
           ...project.metadata,
           thumbnailIterations: (project.metadata?.thumbnailIterations || 0) + 1,
@@ -95,7 +62,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      url: publicUrl,
+      url: result.url,
       iterationCount: (project.metadata?.thumbnailIterations || 0) + 1
     })
 

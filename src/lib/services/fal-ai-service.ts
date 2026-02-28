@@ -11,8 +11,8 @@ if (falKey) {
 export interface FluxGenerationParams {
   prompt: string
   model?: 'flux-pro-1.1' | 'flux-dev' | 'flux-schnell' | 'flux-lora'
-  imageSize?: 'square' | 'landscape_4_3' | 'landscape_16_9' | 'portrait_4_5' | 'portrait_16_9'
-  aspectRatio?: string // Alternative to imageSize
+  imageSize?: 'square' | 'square_hd' | 'landscape_4_3' | 'landscape_16_9' | 'portrait_4_3' | 'portrait_16_9' | { width: number; height: number }
+  aspectRatio?: string
   numInferenceSteps?: number
   guidanceScale?: number
   seed?: number

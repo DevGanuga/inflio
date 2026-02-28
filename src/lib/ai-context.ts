@@ -51,19 +51,36 @@ export async function fetchBrandContext(userId: string): Promise<BrandContext | 
       ? (Array.isArray(bi.voice.tone) ? bi.voice.tone.join(', ') : bi.voice.tone)
       : undefined),
     personality: bi?.voice?.personality || undefined,
+    voicePhrases: bi?.voice?.phrases || undefined,
+    voiceDos: bi?.voice?.dos || undefined,
+    voiceDonts: bi?.voice?.donts || undefined,
+    voiceGuidelines: bi?.voice?.guidelines || undefined,
     mission: bi?.brandStrategy?.mission || undefined,
+    vision: bi?.brandStrategy?.vision || undefined,
     values: bi?.brandStrategy?.values || undefined,
+    positioning: bi?.brandStrategy?.positioning || undefined,
+    pillars: bi?.brandStrategy?.pillars || undefined,
+    brandStory: bi?.brandStrategy?.story || undefined,
     colors: {
       primary: bi?.colors?.primary?.hex || (profile.brand_colors?.primary ? [profile.brand_colors.primary] : undefined),
       secondary: bi?.colors?.secondary?.hex || (profile.brand_colors?.secondary ? [profile.brand_colors.secondary] : undefined),
       accent: bi?.colors?.accent?.hex || (profile.brand_colors?.accent ? [profile.brand_colors.accent] : undefined),
+    },
+    visualStyle: {
+      photographyStyle: bi?.visualStyle?.photography?.style || undefined,
+      photographyMood: bi?.visualStyle?.photography?.mood || undefined,
+      photographyComposition: bi?.visualStyle?.photography?.composition || undefined,
+      principles: bi?.visualStyle?.principles || undefined,
     },
     targetAudience: {
       description: profile.target_audience?.description || undefined,
       demographics: bi?.targetAudience?.demographics || undefined,
       psychographics: bi?.targetAudience?.psychographics || undefined,
       needs: bi?.targetAudience?.needs || undefined,
+      painPoints: bi?.targetAudience?.painPoints || undefined,
+      personas: bi?.targetAudience?.personas || undefined,
     },
+    differentiators: bi?.competitors?.differentiators || undefined,
     contentGoals: profile.content_goals || undefined,
     primaryPlatforms: profile.primary_platforms || undefined,
   }
@@ -83,18 +100,21 @@ export async function fetchPersonaContext(personaId: string): Promise<PersonaCon
 
   if (!personaRecord) return null
 
-  const portraitCount =
-    personaRecord.metadata?.portraits?.length ||
-    personaRecord.metadata?.generalPortraitUrls?.length ||
-    personaRecord.metadata?.portraitUrls?.length || 0
+  // Collect portrait URLs from all possible storage locations
+  const portraitUrls: string[] =
+    personaRecord.metadata?.generalPortraitUrls ||
+    personaRecord.metadata?.portraitUrls ||
+    personaRecord.metadata?.portraits?.map((p: any) => p.url).filter(Boolean) ||
+    []
 
   return {
     id: personaRecord.id,
     name: personaRecord.name,
     description: personaRecord.description || undefined,
     brandVoice: personaRecord.metadata?.brandVoice || undefined,
-    hasPortraits: portraitCount > 0,
-    portraitCount,
+    hasPortraits: portraitUrls.length > 0,
+    portraitCount: portraitUrls.length,
+    portraitUrls: portraitUrls.length > 0 ? portraitUrls : undefined,
     loraModelUrl: personaRecord.lora_model_url || undefined,
     loraTriggerPhrase: personaRecord.lora_trigger_phrase || undefined,
   }

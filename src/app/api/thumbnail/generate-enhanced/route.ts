@@ -1,15 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
-import { fal } from '@fal-ai/client'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getOpenAI } from '@/lib/openai'
 import { v4 as uuidv4 } from 'uuid'
-// import sharp from 'sharp' // Commented out - not compatible with edge runtime
-
-// Configure FAL AI
-fal.config({
-  credentials: process.env.FAL_KEY!
-})
+import { OpenAIImageService, type ImageSize } from '@/lib/services/openai-image-service'
 
 export const maxDuration = 60
 
@@ -184,147 +178,66 @@ export async function POST(req: NextRequest) {
       finalPrompt += ', large clear area for text, minimal background elements'
     }
 
-    // Prepare generation parameters
-    const generationParams: any = {
-      prompt: finalPrompt,
-      image_size: {
-        width: platformConfig.width,
-        height: platformConfig.height
-      },
-      num_inference_steps: quality === 'fast' ? 4 : 
-                           quality === 'balanced' ? styleParams.num_inference_steps :
-                           styleParams.num_inference_steps * 1.5,
-      guidance_scale: styleParams.guidance_scale,
-      num_images: 1,
-      enable_safety_checker: true,
-      output_format: 'png',
-      expand_prompt: true,
-      seed: Math.floor(Math.random() * 1000000)
+    // Map platform to GPT Image 1.5 sizes
+    const platformSizeMap: Record<string, ImageSize> = {
+      youtube: '1536x1024',
+      instagram: '1024x1024',
+      linkedin: '1536x1024',
+      universal: '1536x1024',
     }
+    const imageSize = platformSizeMap[platform] || '1536x1024'
+    const imgQuality = quality === 'fast' ? 'low' : quality === 'balanced' ? 'medium' : 'high'
+    const storagePath = `thumbnails/${projectId}`
 
-    // Add persona if requested
-    if (includePersona) {
-      const persona = await getPersonaLoRA(userId)
-      if (persona) {
-        generationParams.loras = [{
-          path: persona.model_ref,
-          scale: personaBlendStrength / 100
-        }]
-      }
-    }
+    console.log('Generating thumbnail:', { platform, style, quality, size: imageSize })
 
-    // Use video frame as reference if provided
-    if (videoFrameUrl) {
-      generationParams.image_url = videoFrameUrl
-      generationParams.strength = 0.7 // Keep some similarity to original
-    }
-
-    console.log('Generating thumbnail with params:', {
-      model: platformConfig.model,
-      platform,
-      style,
-      quality,
-      dimensions: `${platformConfig.width}x${platformConfig.height}`
-    })
-
-    // Generate with FAL AI
-    let result: any
     const startTime = Date.now()
 
+    let genResult
     try {
-      result = await fal.subscribe(platformConfig.model, {
-        input: generationParams,
-        logs: true,
-        onQueueUpdate: (update) => {
-          console.log('Generation progress:', update)
+      // If persona is requested, get portrait URLs and use edit endpoint
+      if (includePersona) {
+        const persona = await getPersonaPortraitUrls(userId)
+        if (persona?.portraitUrls?.length) {
+          genResult = await OpenAIImageService.generateWithPersona(
+            finalPrompt,
+            persona.portraitUrls,
+            { size: imageSize, quality: imgQuality as any, storagePath }
+          )
         }
-      })
-    } catch (falError: any) {
-      console.error('FAL generation error:', falError)
-      
-      // Fallback to OpenAI DALL-E
-      if (process.env.OPENAI_API_KEY) {
-        try {
-          const openaiResponse = await openai.images.generate({
-            model: 'dall-e-3',
-            prompt: finalPrompt,
-            n: 1,
-            size: platform === 'instagram' ? '1024x1024' : '1792x1024',
-            quality: quality === 'high' ? 'hd' : 'standard',
-            style: 'vivid'
-          })
-          
-          if (openaiResponse.data && openaiResponse.data[0]?.url) {
-            result = {
-              images: [{
-                url: openaiResponse.data[0].url,
-                content_type: 'image/png',
-                width: platform === 'instagram' ? 1024 : 1792,
-                height: platform === 'instagram' ? 1024 : 1024
-            }]
-          }
-          } else {
-            throw new Error('No image URL in OpenAI response')
-          }
-        } catch (openaiError) {
-          console.error('OpenAI fallback failed:', openaiError)
-          
-          // Update status to failed
-          await supabaseAdmin
-            .from('thumbnail_generations')
-            .update({
-              status: 'failed',
-              error_message: 'All generation services failed'
-            })
-            .eq('id', generationId)
-          
-          throw new Error('Generation failed')
-        }
-      } else {
-        throw falError
       }
+
+      // If video frame provided, use edit endpoint
+      if (!genResult && videoFrameUrl) {
+        genResult = await OpenAIImageService.edit(
+          [videoFrameUrl],
+          finalPrompt,
+          { size: imageSize, quality: imgQuality as any, inputFidelity: 'low', storagePath }
+        )
+      }
+
+      // Default: generate from text
+      if (!genResult) {
+        genResult = await OpenAIImageService.generate(
+          finalPrompt,
+          { size: imageSize, quality: imgQuality as any, storagePath }
+        )
+      }
+    } catch (genError) {
+      console.error('Image generation failed:', genError)
+      await supabaseAdmin
+        .from('thumbnail_generations')
+        .update({ status: 'failed', error_message: 'Generation failed' })
+        .eq('id', generationId)
+      throw new Error('Generation failed')
     }
 
     const processingTime = Date.now() - startTime
+    const publicUrl = genResult.url
 
-    if (!result?.images?.[0]?.url) {
-      throw new Error('No image generated')
+    if (!publicUrl) {
+      throw new Error('No image URL generated')
     }
-
-    const generatedImageUrl = result.images[0].url
-
-    // Download and optimize image
-    const imageResponse = await fetch(generatedImageUrl)
-    const imageBuffer = await imageResponse.arrayBuffer()
-    
-    // Convert to buffer (sharp optimization commented out due to edge runtime compatibility)
-    const optimizedBuffer = Buffer.from(imageBuffer)
-    // Note: Image resizing would need to be done via a separate API or service
-    // if (platform !== 'universal') {
-    //   optimizedBuffer = await sharp(Buffer.from(imageBuffer))
-    //     .resize(platformConfig.width, platformConfig.height, { fit: 'cover' })
-    //     .png({ quality: 90 })
-    //     .toBuffer()
-    // }
-
-    // Upload to Supabase storage
-    const fileName = `thumbnails/${projectId}/${generationId}.png`
-    const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
-      .from('ai-generated-images')
-      .upload(fileName, optimizedBuffer, {
-        contentType: 'image/png',
-        upsert: false
-      })
-
-    if (uploadError) {
-      console.error('Storage upload error:', uploadError)
-      throw uploadError
-    }
-
-    // Get public URL
-    const { data: { publicUrl } } = supabaseAdmin.storage
-      .from('ai-generated-images')
-      .getPublicUrl(fileName)
 
     // Generate text overlay suggestions
     const textSuggestions = await generateTextSuggestions(
@@ -345,18 +258,14 @@ export async function POST(req: NextRequest) {
       .from('thumbnail_generations')
       .update({
         url: publicUrl,
-        storage_path: fileName,
         enhanced_prompt: finalPrompt,
         status: 'completed',
         processing_time_ms: processingTime,
-        file_size: optimizedBuffer.length,
-        seed: generationParams.seed,
+        model: 'gpt-image-1.5',
         performance_score: performanceScore,
         metadata: {
-          model: platformConfig.model,
-          original_url: generatedImageUrl,
+          model: 'gpt-image-1.5',
           text_suggestions: textSuggestions,
-          generation_params: generationParams
         }
       })
       .eq('id', generationId)
@@ -392,8 +301,7 @@ export async function POST(req: NextRequest) {
       enhancedPrompt: finalPrompt,
       textSuggestions,
       metadata: {
-        model: platformConfig.model,
-        seed: generationParams.seed,
+        model: 'gpt-image-1.5',
         processingTime,
         dimensions: {
           width: platformConfig.width,
@@ -485,15 +393,29 @@ async function generateTextSuggestions(
   }
 }
 
-async function getPersonaLoRA(userId: string) {
+async function getPersonaPortraitUrls(userId: string) {
+  const { data: profile } = await supabaseAdmin
+    .from('user_profiles')
+    .select('default_persona_id')
+    .eq('clerk_user_id', userId)
+    .single()
+
+  if (!profile?.default_persona_id) return null
+
   const { data: persona } = await supabaseAdmin
     .from('personas')
-    .select('id, model_ref, status')
-    .eq('user_id', userId)
-    .eq('status', 'ready')
+    .select('id, name, metadata')
+    .eq('id', profile.default_persona_id)
     .single()
-  
-  return persona
+
+  if (!persona) return null
+
+  const portraitUrls =
+    persona.metadata?.generalPortraitUrls?.slice(0, 4) ||
+    persona.metadata?.portraitUrls?.slice(0, 4) ||
+    []
+
+  return { portraitUrls }
 }
 
 async function predictPerformance(

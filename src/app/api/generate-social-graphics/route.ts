@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from "@clerk/nextjs/server"
-import { getOpenAI } from '@/lib/openai'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { PLATFORM_SPECS } from '@/lib/social-graphics-config'
+import { OpenAIImageService } from '@/lib/services/openai-image-service'
 
 export async function POST(req: NextRequest) {
   try {
@@ -44,7 +44,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 })
     }
 
-    const openai = getOpenAI()
     const graphics = []
 
     // Parse size
@@ -96,77 +95,49 @@ export async function POST(req: NextRequest) {
       }
       
       try {
-        // Determine optimal format
-        const format = needsTransparency ? 'png' : 'png' // gpt-image-1 handles transparency automatically
-        
-        const response = await openai.images.generate({
-          model: "gpt-image-1",
-          prompt: variationPrompt,
-          n: 1,
-          size: determineOptimalSize(width, height) as any,
-          quality: quality as any,
-          background: background || (needsTransparency ? 'transparent' : 'auto'),
-          response_format: 'url' // Get URL for faster processing
-        })
-        
-        const imageUrl = response.data?.[0]?.url
-        if (!imageUrl) continue
-        
-        // Download and save
-        const imageResponse = await fetch(imageUrl)
-        const imageBlob = await imageResponse.blob()
-        
-        const fileName = `social-${platform}-${template}-${crypto.randomUUID()}.${format}`
-        const filePath = `${projectId}/social-graphics/${platform}/${fileName}`
-        
-        const { error: uploadError } = await supabaseAdmin.storage
-          .from('ai-generated-images')
-          .upload(filePath, imageBlob, {
-            contentType: `image/${format}`,
-            upsert: false
-          })
+        const optimalSize = determineOptimalSize(width, height)
+        const storagePath = `social-graphics/${projectId}/${platform}`
 
-        if (!uploadError) {
-          const { data: { publicUrl } } = supabaseAdmin.storage
-            .from('ai-generated-images')
-            .getPublicUrl(filePath)
-          
-          // Store metadata in database
-          const { data: savedGraphic } = await supabaseAdmin
-            .from('social_graphics')
-            .insert({
-              project_id: projectId,
-              user_id: userId,
-              platform,
-              size,
-              template,
-              url: publicUrl,
-              prompt: variationPrompt,
-              metadata: {
-                brandColor,
-                customText,
-                hasPersona: personalPhotos.length > 0,
-                personaName,
-                needsTransparency,
-                generatedWith: 'gpt-image-1',
-                quality,
-                style,
-                variation: variations > 1 ? i + 1 : null,
-                ...metadata // Include suggestion metadata (priority, engagement, etc.)
-              }
-            })
-            .select()
-            .single()
-          
-          graphics.push({
-            id: savedGraphic?.id || crypto.randomUUID(),
-            url: publicUrl,
+        const result = await OpenAIImageService.generate(variationPrompt, {
+          size: optimalSize as any,
+          quality: quality as any,
+          storagePath,
+        })
+
+        const { data: savedGraphic } = await supabaseAdmin
+          .from('social_graphics')
+          .insert({
+            project_id: projectId,
+            user_id: userId,
             platform,
             size,
             template,
-            metadata: savedGraphic?.metadata
+            url: result.url,
+            prompt: variationPrompt,
+            metadata: {
+              brandColor,
+              customText,
+              hasPersona: personalPhotos.length > 0,
+              personaName,
+              needsTransparency,
+              generatedWith: 'gpt-image-1.5',
+              quality,
+              style,
+              variation: variations > 1 ? i + 1 : null,
+              ...metadata
+            }
           })
-        }
+          .select()
+          .single()
+
+        graphics.push({
+          id: savedGraphic?.id || crypto.randomUUID(),
+          url: result.url,
+          platform,
+          size,
+          template,
+          metadata: savedGraphic?.metadata
+        })
       } catch (error) {
         console.error(`Failed to generate variation ${i + 1}:`, error)
       }

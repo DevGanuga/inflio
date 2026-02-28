@@ -1,13 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from "@clerk/nextjs/server"
-import { fal } from "@fal-ai/client"
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { v4 as uuidv4 } from 'uuid'
-
-// Configure FAL AI client
-fal.config({
-  credentials: process.env.FAL_KEY!
-})
+import { OpenAIImageService } from '@/lib/services/openai-image-service'
 
 export const maxDuration = 60
 
@@ -63,85 +58,44 @@ export async function POST(req: NextRequest) {
       try {
         const style = styles[i] || styles[0]
         
-        // Modify prompt for variation
         const variationPrompt = `${parentThumbnail.prompt}. Style variation: ${style}, maintain core composition but vary details.`
-        
-        // Generate variation using text-to-image (since img2img is not available)
-        const result = await fal.subscribe("fal-ai/flux/dev", {
-          input: {
-            prompt: variationPrompt,
-            image_size: parentThumbnail.params?.image_size || 'landscape_16_9',
-            num_inference_steps: 20, // Faster for variations
-            guidance_scale: 6.5 + (variationStrength * 2), // Adjust guidance based on variation strength
-            seed: Math.floor(Math.random() * 1000000), // Random seed for variation
-            num_images: 1,
-            enable_safety_checker: true
-          },
-          logs: true
+        const storagePath = `thumbnails/${projectId}`
+
+        const genResult = await OpenAIImageService.generate(variationPrompt, {
+          size: '1536x1024',
+          quality: 'high',
+          storagePath,
         })
 
-        const imageUrl = (result as any)?.data?.images?.[0]?.url || (result as any)?.images?.[0]?.url
-        if (imageUrl) {
-          // Download and upload to storage
-          const imageResponse = await fetch(imageUrl)
-          const imageBuffer = await imageResponse.arrayBuffer()
-          
-          const fileName = `thumbnails/${projectId}/variation_${Date.now()}_${uuidv4()}.png`
-          
-          const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
-            .from('videos')
-            .upload(fileName, imageBuffer, {
-              contentType: 'image/png',
-              upsert: false
-            })
-          
-          if (!uploadError) {
-            // Get public URL
-            const { data: { publicUrl } } = supabaseAdmin.storage
-              .from('videos')
-              .getPublicUrl(fileName)
+        const { data: variationRecord, error: historyError } = await supabaseAdmin
+          .from('thumbnail_history')
+          .insert({
+            project_id: projectId,
+            user_id: userId,
+            type: 'variation',
+            prompt: variationPrompt,
+            base_prompt: parentThumbnail.base_prompt,
+            params: { ...parentThumbnail.params, style, variationIndex: i, variationStrength },
+            model: 'gpt-image-1.5',
+            input_image_url: parentThumbnail.output_url,
+            output_url: genResult.url,
+            width: 1536,
+            height: 1024,
+            status: 'completed',
+            parent_id: parentId,
+            created_by: userId
+          })
+          .select()
+          .single()
 
-            // Store variation in history
-            const { data: variationRecord, error: historyError } = await supabaseAdmin
-              .from('thumbnail_history')
-              .insert({
-                project_id: projectId,
-                user_id: userId,
-                type: 'variation',
-                prompt: variationPrompt,
-                base_prompt: parentThumbnail.base_prompt,
-                params: {
-                  ...parentThumbnail.params,
-                  style,
-                  variationIndex: i,
-                  variationStrength
-                },
-                model: 'fal-ai/flux/dev',
-                lora_ref: parentThumbnail.lora_ref,
-                seed: (result as any)?.seed || (result as any)?.data?.seed || null,
-                input_image_url: parentThumbnail.output_url,
-                output_url: publicUrl,
-                file_size: imageBuffer.byteLength,
-                width: 1792,
-                height: 1024,
-                job_id: result.requestId || (result as any)?.request_id || null,
-                status: 'completed',
-                parent_id: parentId,
-                created_by: userId
-              })
-              .select()
-              .single()
-            
-            if (!historyError && variationRecord) {
-              variations.push({
-                id: variationRecord.id,
-                url: publicUrl,
-                style,
-                index: i,
-                parentId
-              })
-            }
-          }
+        if (!historyError && variationRecord) {
+          variations.push({
+            id: variationRecord.id,
+            url: genResult.url,
+            style,
+            index: i,
+            parentId
+          })
         }
       } catch (error) {
         console.error(`Failed to generate variation ${i}:`, error)
